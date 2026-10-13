@@ -1,0 +1,28 @@
+experiment:
+  name: custom_patchcore
+  seed: 42
+  device: auto
+  output_dir: ../runs
+data:
+  format: folders
+  train_normal_dir: ../dataset/train/good
+  test_normal_dir: ../dataset/test/good
+  test_anomaly_dir: ../dataset/test/defect
+  mask_dir: ../dataset/ground_truth/defect
+  mask_suffix: _mask
+  mask_extension: .png
+  recursive: true
+  image_size: [512, 512]
+  batch_size: 1
+model:
+  name: patchcore
+  backbone: wide_resnet50_2
+  layers: [layer2, layer3]
+  pretrained: true
+input_tiling:
+  enabled: true
+  tile_size: [256, 256]
+  stride: [256, 256]
+patchcore:
+  coreset_ratio: 0.1
+  num_neighbors: 9

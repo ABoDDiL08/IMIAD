@@ -1,0 +1,41 @@
+experiment:
+  name: audiojack_c1_cflow_tiled_ensemble
+  seed: 42
+  device: auto
+  output_dir: ../runs
+data:
+  format: real_iad
+  root: D:/VinRobotics
+  metadata: D:/VinRobotics/realiad_jsons/realiad_jsons_sv/audiojack.json
+  category: audiojack
+  camera: C1
+  resolution: raw
+  image_size: [512, 512]
+  batch_size: 1
+  num_workers: 0
+  strict_files: true
+model:
+  name: cflow
+  backbone: wide_resnet50_2
+  layers: [layer2, layer3, layer4]
+  pretrained: true
+input_tiling:
+  enabled: false
+tiled_ensemble:
+  enabled: true
+  tile_size: [256, 256]
+  stride: [256, 256]
+  aggregation: mean
+cflow:
+  condition_vector: 128
+  coupling_blocks: 8
+  clamp_alpha: 1.9
+  fiber_batch_size: 64
+  learning_rate: 0.0001
+  epochs: 10
+evaluation:
+  aupro_fpr_limit: 0.3
+  aupro_thresholds: 200
+  fps_warmup: 2
+  save_maps: false
+  save_checkpoint: false

@@ -1,0 +1,10 @@
+FrEIA>=0.2
+PyYAML>=6
+numpy>=1.26
+Pillow>=10
+scipy>=1.11
+scikit-image>=0.22
+scikit-learn>=1.4
+torch>=2.3
+torchvision>=0.18
+timm>=0.9
