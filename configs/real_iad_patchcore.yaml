@@ -5,8 +5,8 @@ experiment:
   output_dir: ../runs
 data:
   format: real_iad
-  root: D:/VinRobotics
-  metadata: D:/VinRobotics/realiad_jsons/realiad_jsons_sv/phone_battery.json
+  root: /kaggle/input/datasets/anhbodoidilinh08/real-iad-subset
+  metadata: /kaggle/input/datasets/anhbodoidilinh08/real-iad-subset/realiad_jsons_sv
   category: phone_battery
   camera: C1
   resolution: raw
