@@ -6,7 +6,7 @@ experiment:
 data:
   format: real_iad
   root: /kaggle/input/datasets/anhbodoidilinh08/real-iad-subset
-  metadata: /kaggle/input/datasets/anhbodoidilinh08/real-iad-subset/realiad_jsons_sv
+  metadata: /kaggle/input/datasets/anhbodoidilinh08/real-iad-subset/realiad_jsons_sv/phone_battery.json
   category: phone_battery
   camera: C1
   resolution: raw
