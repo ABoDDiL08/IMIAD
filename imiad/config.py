@@ -10,18 +10,19 @@ import yaml
 
 DEFAULTS = {
     "experiment": {"name": "imiad", "seed": 42, "device": "auto", "output_dir": "runs"},
-    "data": {"format": "real_iad", "image_size": [256, 256], "batch_size": 1,
+    "data": {"format": "real_iad", "image_size": None, "batch_size": 1,
              "num_workers": 0, "max_train": None, "max_test": None,
              "strict_files": True},
     "model": {"name": "patchcore", "backbone": "wide_resnet50_2",
               "layers": ["layer2", "layer3"], "pretrained": True},
     "input_tiling": {"enabled": True, "tile_size": [128, 128],
-                     "stride": [128, 128], "mode": "padding",
+                     "stride": [128, 128], "tile_resize": None, "mode": "padding",
                      "remove_border_count": 0},
     "tiled_ensemble": {"enabled": False, "tile_size": [128, 128],
                        "stride": [128, 128], "aggregation": "mean"},
     "patchcore": {"coreset_ratio": 0.1, "num_neighbors": 9,
-                  "projection_eps": 0.9},
+                  "projection_eps": 0.9, "tile_batch_size": 8,
+                  "embedding_storage": "disk", "distance_bank_chunk_size": 4096},
     "cflow": {"condition_vector": 128, "coupling_blocks": 8,
               "clamp_alpha": 1.9, "fiber_batch_size": 64,
               "learning_rate": 0.0001, "epochs": 10},
@@ -76,19 +77,34 @@ def load_config(path: str | Path) -> dict:
         raise ValueError("TiledEnsemble is supported for CFlow in this project")
     if model["name"] == "cflow" and cfg["input_tiling"]["enabled"]:
         raise ValueError("Input Tiling is supported for PatchCore in this project")
-    cfg["data"]["image_size"] = _pair(data["image_size"], "data.image_size")
+    if data["image_size"] is not None:
+        data["image_size"] = _pair(data["image_size"], "data.image_size")
+    if model["name"] == "patchcore" and cfg["input_tiling"]["enabled"] and data["image_size"] is not None:
+        raise ValueError("PatchCore Input Tiling reads native-size images; set data.image_size: null")
+    if model["name"] == "cflow" and data["image_size"] is None:
+        raise ValueError("CFlow requires a fixed data.image_size")
     for group in ("input_tiling", "tiled_ensemble"):
         tile = _pair(cfg[group]["tile_size"], f"{group}.tile_size")
         stride = _pair(cfg[group]["stride"], f"{group}.stride")
         if any(s > t for s, t in zip(stride, tile)):
             raise ValueError(f"{group}.stride cannot exceed tile_size")
         cfg[group]["tile_size"], cfg[group]["stride"] = tile, stride
+    resize = cfg["input_tiling"]["tile_resize"]
+    cfg["input_tiling"]["tile_resize"] = (
+        cfg["input_tiling"]["tile_size"] if resize is None else _pair(resize, "input_tiling.tile_resize")
+    )
     if not 0 < cfg["patchcore"]["coreset_ratio"] <= 1:
         raise ValueError("patchcore.coreset_ratio must be in (0, 1]")
     if not 0 < cfg["patchcore"]["projection_eps"] < 1:
         raise ValueError("patchcore.projection_eps must be in (0, 1)")
     if cfg["patchcore"]["num_neighbors"] < 1:
         raise ValueError("patchcore.num_neighbors must be positive")
+    if cfg["patchcore"]["tile_batch_size"] < 1:
+        raise ValueError("patchcore.tile_batch_size must be positive")
+    if cfg["patchcore"]["distance_bank_chunk_size"] < 1:
+        raise ValueError("patchcore.distance_bank_chunk_size must be positive")
+    if cfg["patchcore"]["embedding_storage"] not in {"memory", "disk"}:
+        raise ValueError("patchcore.embedding_storage must be memory or disk")
     if cfg["cflow"]["condition_vector"] % 4:
         raise ValueError("cflow.condition_vector must be divisible by 4")
     if cfg["cflow"]["fiber_batch_size"] < 1 or cfg["cflow"]["epochs"] < 1:

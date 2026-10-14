@@ -62,6 +62,7 @@ def run(config_path: str | Path) -> Path:
         f"{cfg['experiment']['name']}_{timestamp}_{uuid4().hex[:8]}"
     )
     run_dir.mkdir(parents=True, exist_ok=False)
+    cfg["_run_dir"] = str(run_dir)
     (run_dir / "config_resolved.yaml").write_text(
         yaml.safe_dump(_yaml_safe({k: v for k, v in cfg.items() if not k.startswith("_")}),
                        sort_keys=False, allow_unicode=True), encoding="utf-8")
@@ -98,6 +99,7 @@ def run(config_path: str | Path) -> Path:
         test_loader = DataLoader(test_set, batch_size=1, shuffle=False,
                                  num_workers=cfg["data"]["num_workers"])
         model = build_runner(cfg, device)
+        cpu_tiled_patchcore = cfg["model"]["name"] == "patchcore" and cfg["input_tiling"]["enabled"]
         _sync(device)
         start = time.perf_counter()
         history = model.fit(train_loader)
@@ -110,7 +112,9 @@ def run(config_path: str | Path) -> Path:
 
         warmup = int(cfg["evaluation"]["fps_warmup"])
         if warmup:
-            first = next(iter(test_loader))["image"].to(device)
+            first = next(iter(test_loader))["image"]
+            if not cpu_tiled_patchcore:
+                first = first.to(device)
             for _ in range(warmup):
                 model.predict(first)
             _sync(device)
@@ -125,7 +129,7 @@ def run(config_path: str | Path) -> Path:
         if cfg["evaluation"]["save_maps"]:
             map_dir.mkdir()
         for index, batch in enumerate(test_loader):
-            image = batch["image"].to(device)
+            image = batch["image"] if cpu_tiled_patchcore else batch["image"].to(device)
             _sync(device)
             tick = time.perf_counter()
             scores, anomaly_maps = model.predict(image)
@@ -150,7 +154,12 @@ def run(config_path: str | Path) -> Path:
             cfg["evaluation"]["aupro_thresholds"],
         ))
         report["metrics"]["inference_fps"] = len(test_records) / inference_seconds
-        report["fps_scope"] = "model forward only; one preloaded image at a time; device synchronized"
+        report["fps_scope"] = (
+            "one CPU image at a time; tile transfers, model forward, CPU nearest-neighbor search "
+            "and map joining included; data loading and metric calculation excluded"
+            if cpu_tiled_patchcore else
+            "model forward only; one preloaded image at a time; device synchronized"
+        )
         with (run_dir / "predictions.csv").open("w", newline="", encoding="utf-8") as stream:
             writer = csv.DictWriter(stream, fieldnames=["path", "label", "score"])
             writer.writeheader()

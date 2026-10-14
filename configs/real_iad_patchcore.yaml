@@ -10,7 +10,7 @@ data:
   category: audiojack
   camera: C1
   resolution: raw
-  image_size: [512, 512]
+  image_size: null  # Keep the source image and mask at their native size.
   batch_size: 1
   num_workers: 0
   strict_files: true
@@ -21,8 +21,9 @@ model:
   pretrained: true
 input_tiling:
   enabled: true
-  tile_size: [256, 256]
+  tile_size: [512, 512]   # Raw-image pixels before the backbone.
   stride: [256, 256]
+  tile_resize: [256, 256] # Network input per tile; equal to tile_size skips resize.
   mode: padding
   remove_border_count: 0
 tiled_ensemble:
@@ -30,6 +31,9 @@ tiled_ensemble:
 patchcore:
   coreset_ratio: 0.1
   num_neighbors: 9
+  tile_batch_size: 4       # Maximum tiles passed to the backbone per forward.
+  embedding_storage: disk  # Temporary training embeddings are deleted after coreset selection.
+  distance_bank_chunk_size: 4096
 evaluation:
   aupro_fpr_limit: 0.3
   aupro_thresholds: 200

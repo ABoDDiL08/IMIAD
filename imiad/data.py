@@ -138,7 +138,7 @@ def load_records(data: dict) -> tuple[list[Record], list[Record]]:
 
 
 class ImageDataset(Dataset):
-    def __init__(self, records: list[Record], size: tuple[int, int]) -> None:
+    def __init__(self, records: list[Record], size: tuple[int, int] | None) -> None:
         self.records = records
         self.size = size
 
@@ -148,15 +148,21 @@ class ImageDataset(Dataset):
     def __getitem__(self, index: int) -> dict:
         record = self.records[index]
         with Image.open(record.image) as raw:
-            image = raw.convert("RGB").resize((self.size[1], self.size[0]), Image.Resampling.BILINEAR)
+            image = raw.convert("RGB")
+            if self.size is not None:
+                image = image.resize((self.size[1], self.size[0]), Image.Resampling.BILINEAR)
             image_tensor = torch.from_numpy(np.asarray(image).copy()).permute(2, 0, 1).float() / 255
         image_tensor = (image_tensor - IMAGENET_MEAN) / IMAGENET_STD
         if record.mask is None:
-            mask_tensor = torch.zeros(self.size, dtype=torch.uint8)
+            mask_tensor = torch.zeros(image_tensor.shape[-2:], dtype=torch.uint8)
         else:
             with Image.open(record.mask) as raw:
-                mask = raw.convert("L").resize((self.size[1], self.size[0]), Image.Resampling.NEAREST)
+                mask = raw.convert("L")
+                if self.size is not None:
+                    mask = mask.resize((self.size[1], self.size[0]), Image.Resampling.NEAREST)
                 mask_tensor = torch.from_numpy((np.asarray(mask) > 0).astype(np.uint8))
+            if mask_tensor.shape != image_tensor.shape[-2:]:
+                raise ValueError(f"Image and mask dimensions differ: {record.image} / {record.mask}")
         return {"image": image_tensor, "mask": mask_tensor,
                 "label": torch.tensor(record.label, dtype=torch.uint8),
                 "path": str(record.image)}

@@ -12,7 +12,7 @@ data:
   mask_suffix: _mask
   mask_extension: .png
   recursive: true
-  image_size: [512, 512]
+  image_size: null
   batch_size: 1
 model:
   name: patchcore
@@ -23,6 +23,10 @@ input_tiling:
   enabled: true
   tile_size: [256, 256]
   stride: [256, 256]
+  tile_resize: [256, 256]
 patchcore:
   coreset_ratio: 0.1
   num_neighbors: 9
+  tile_batch_size: 8
+  embedding_storage: disk
+  distance_bank_chunk_size: 4096
