@@ -1,13 +1,13 @@
 experiment:
-  name: audiojack_c1_patchcore_input_tiling
+  name: phone_battery_c1_patchcore_input_tiling
   seed: 42
   device: auto
   output_dir: ../runs
 data:
   format: real_iad
   root: D:/VinRobotics
-  metadata: D:/VinRobotics/realiad_jsons/realiad_jsons_sv/audiojack.json
-  category: audiojack
+  metadata: D:/VinRobotics/realiad_jsons/realiad_jsons_sv/phone_battery.json
+  category: phone_battery
   camera: C1
   resolution: raw
   image_size: null  # Keep the source image and mask at their native size.
@@ -22,16 +22,16 @@ model:
 input_tiling:
   enabled: true
   tile_size: [512, 512]   # Raw-image pixels before the backbone.
-  stride: [256, 256]
+  stride: [512, 512]
   tile_resize: [256, 256] # Network input per tile; equal to tile_size skips resize.
   mode: padding
   remove_border_count: 0
 tiled_ensemble:
   enabled: false
 patchcore:
-  coreset_ratio: 0.1
-  num_neighbors: 9
-  tile_batch_size: 4       # Maximum tiles passed to the backbone per forward.
+  coreset_ratio: 0.01
+  num_neighbors: 1
+  tile_batch_size: 8       # Maximum tiles passed to the backbone per forward.
   embedding_storage: disk  # Temporary training embeddings are deleted after coreset selection.
   distance_bank_chunk_size: 4096
 evaluation:
