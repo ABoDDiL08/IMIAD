@@ -74,6 +74,10 @@ def run(config_path: str | Path) -> Path:
         "model": cfg["model"]["name"],
         "versions": {"torch": torch.__version__, "timm": version("timm"),
                      "FrEIA": version("FrEIA")},
+        "metric_details": {"P-AUROC": {
+            "method": "exact" if cfg["evaluation"]["pixel_auroc_bins"] is None else "histogram",
+            "bins": cfg["evaluation"]["pixel_auroc_bins"],
+        }},
         "metrics": {"I-AUROC": None, "P-AUROC": None, "AUPRO": None,
                     "train_time_seconds": None, "inference_fps": None},
     }
@@ -173,6 +177,7 @@ def run(config_path: str | Path) -> Path:
             image_labels, image_scores, maps, masks,
             cfg["evaluation"]["aupro_fpr_limit"],
             cfg["evaluation"]["aupro_thresholds"],
+            pixel_auroc_bins=cfg["evaluation"]["pixel_auroc_bins"],
             progress=progress,
         ))
         report["metrics"]["inference_fps"] = len(test_records) / inference_seconds

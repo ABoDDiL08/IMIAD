@@ -42,7 +42,7 @@ The runner prints timestamped progress and appends it to `progress.log`. It also
 `metrics.json` stores:
 
 - `I-AUROC`: AUROC of image labels and model image scores.
-- `P-AUROC`: AUROC of every pixel in test masks and anomaly maps.
+- `P-AUROC`: AUROC of every pixel in test masks and anomaly maps. By default this is exact and can exhaust RAM on raw-size images. Set `evaluation.pixel_auroc_bins` to an integer such as `4096` to count scores in bounded-size histogram chunks and approximate AUROC; `metrics.json.metric_details.P-AUROC` records the selected method and bin count. Larger bin counts reduce quantization error without scaling RAM with pixel count.
 - `AUPRO`: 8-connected per-region overlap integrated over background FPR from 0 to `evaluation.aupro_fpr_limit` (default 0.3), divided by that FPR limit. Thresholds are a linspace over observed scores (default 200). This is an approximation whose granularity is configurable.
 - `train_time_seconds`: full fitting time including batches and coreset selection or all tile-flow optimizations, excluding model construction and metric evaluation.
 - `inference_fps`: number of test images divided by synchronized inference time. For tiled PatchCore, this includes tile CPU-to-GPU transfers, backbone forwards, CPU nearest-neighbor search, map joining and blur. For CFlow, the image is preloaded on the compute device. Data loading, mask loading, file writes, and metric calculation are excluded. CFlow evaluates one image per forward to avoid batch-dependent likelihood scaling.

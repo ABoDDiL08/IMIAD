@@ -39,6 +39,7 @@ patchcore:
 evaluation:
   aupro_fpr_limit: 0.3
   aupro_thresholds: 200
+  pixel_auroc_bins: 4096  # Bounded-memory approximation for native-size test images.
   fps_warmup: 2
   save_maps: false
   save_checkpoint: false

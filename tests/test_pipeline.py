@@ -111,7 +111,8 @@ class PipelineTest(unittest.TestCase):
                               "distance_bank_chunk_size": 7},
                 "cflow": {"condition_vector": 16, "coupling_blocks": 1,
                           "fiber_batch_size": 8, "epochs": 1},
-                "evaluation": {"fps_warmup": 0, "aupro_thresholds": 25},
+                "evaluation": {"fps_warmup": 0, "aupro_thresholds": 25,
+                               "pixel_auroc_bins": 128},
             }
             config_file = root / "config.yaml"
             config_file.write_text(yaml.safe_dump(cfg), encoding="utf-8")
@@ -126,7 +127,9 @@ class PipelineTest(unittest.TestCase):
             if model == "patchcore":
                 self.assertIn("train_coreset_selection", progress_log)
             self.assertIn("test_inference", progress_log)
-            self.assertIn("test_metrics_pixel_auroc", progress_log)
+            self.assertIn("test_metrics_pixel_histogram", progress_log)
+            self.assertEqual(report["metric_details"]["P-AUROC"],
+                             {"method": "histogram", "bins": 128})
             self.assertEqual(report["dataset"]["test_images"], 2)
             for name in ("I-AUROC", "P-AUROC", "AUPRO", "train_time_seconds", "inference_fps"):
                 self.assertIsNotNone(report["metrics"][name], name)

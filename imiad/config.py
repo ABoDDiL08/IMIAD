@@ -27,6 +27,7 @@ DEFAULTS = {
               "clamp_alpha": 1.9, "fiber_batch_size": 64,
               "learning_rate": 0.0001, "epochs": 10},
     "evaluation": {"aupro_fpr_limit": 0.3, "aupro_thresholds": 200,
+                   "pixel_auroc_bins": None,
                    "fps_warmup": 2, "save_maps": False, "save_checkpoint": False},
 }
 
@@ -117,6 +118,9 @@ def load_config(path: str | Path) -> dict:
             raise ValueError(f"data.{field} must be a positive integer or null")
     if cfg["evaluation"]["aupro_thresholds"] < 2:
         raise ValueError("evaluation.aupro_thresholds must be at least two")
+    bins = cfg["evaluation"]["pixel_auroc_bins"]
+    if bins is not None and (type(bins) is not int or bins < 2):
+        raise ValueError("evaluation.pixel_auroc_bins must be null or an integer >= 2")
     if cfg["evaluation"]["fps_warmup"] < 0:
         raise ValueError("evaluation.fps_warmup must be nonnegative")
     if cfg["input_tiling"]["remove_border_count"] < 0:
