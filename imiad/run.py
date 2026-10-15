@@ -119,6 +119,7 @@ def run(config_path: str | Path) -> Path:
         progress("building_model", train_images=len(train_records), test_images=len(test_records))
         model = build_runner(cfg, device)
         cpu_tiled_patchcore = cfg["model"]["name"] == "patchcore" and cfg["input_tiling"]["enabled"]
+        cpu_input_tiling = cfg["input_tiling"]["enabled"]
         _sync(device)
         start = time.perf_counter()
         progress("train_start", train_images=len(train_records))
@@ -136,7 +137,7 @@ def run(config_path: str | Path) -> Path:
         if warmup:
             progress("test_warmup", warmup_runs=warmup)
             first = next(iter(test_loader))["image"]
-            if not cpu_tiled_patchcore:
+            if not cpu_input_tiling:
                 first = first.to(device)
             for _ in range(warmup):
                 model.predict(first)
@@ -153,7 +154,7 @@ def run(config_path: str | Path) -> Path:
             map_dir.mkdir()
         progress("test_inference", images_done=0, images_total=len(test_records))
         for index, batch in enumerate(test_loader):
-            image = batch["image"] if cpu_tiled_patchcore else batch["image"].to(device)
+            image = batch["image"] if cpu_input_tiling else batch["image"].to(device)
             _sync(device)
             tick = time.perf_counter()
             scores, anomaly_maps = model.predict(image)
@@ -185,6 +186,9 @@ def run(config_path: str | Path) -> Path:
             "one CPU image at a time; tile transfers, model forward, CPU nearest-neighbor search "
             "and map joining included; data loading and metric calculation excluded"
             if cpu_tiled_patchcore else
+            "one CPU image at a time; tile transfers, shared CFLOW forward and CPU map joining "
+            "included; data loading and metric calculation excluded"
+            if cpu_input_tiling else
             "model forward only; one preloaded image at a time; device synchronized"
         )
         progress("writing_outputs")

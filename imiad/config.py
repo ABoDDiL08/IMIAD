@@ -25,7 +25,7 @@ DEFAULTS = {
                   "embedding_storage": "disk", "distance_bank_chunk_size": 4096},
     "cflow": {"condition_vector": 128, "coupling_blocks": 8,
               "clamp_alpha": 1.9, "fiber_batch_size": 64,
-              "learning_rate": 0.0001, "epochs": 10},
+              "learning_rate": 0.0001, "epochs": 10, "tile_batch_size": 8},
     "evaluation": {"aupro_fpr_limit": 0.3, "aupro_thresholds": 200,
                    "pixel_auroc_bins": None,
                    "fps_warmup": 2, "save_maps": False, "save_checkpoint": False},
@@ -76,14 +76,14 @@ def load_config(path: str | Path) -> dict:
         raise ValueError("model.name must be patchcore or cflow")
     if model["name"] == "patchcore" and cfg["tiled_ensemble"]["enabled"]:
         raise ValueError("TiledEnsemble is supported for CFlow in this project")
-    if model["name"] == "cflow" and cfg["input_tiling"]["enabled"]:
-        raise ValueError("Input Tiling is supported for PatchCore in this project")
+    if cfg["input_tiling"]["enabled"] and cfg["tiled_ensemble"]["enabled"]:
+        raise ValueError("input_tiling and tiled_ensemble cannot both be enabled")
     if data["image_size"] is not None:
         data["image_size"] = _pair(data["image_size"], "data.image_size")
-    if model["name"] == "patchcore" and cfg["input_tiling"]["enabled"] and data["image_size"] is not None:
-        raise ValueError("PatchCore Input Tiling reads native-size images; set data.image_size: null")
-    if model["name"] == "cflow" and data["image_size"] is None:
-        raise ValueError("CFlow requires a fixed data.image_size")
+    if cfg["input_tiling"]["enabled"] and data["image_size"] is not None:
+        raise ValueError("Input Tiling reads native-size images; set data.image_size: null")
+    if model["name"] == "cflow" and not cfg["input_tiling"]["enabled"] and data["image_size"] is None:
+        raise ValueError("CFlow without Input Tiling requires a fixed data.image_size")
     for group in ("input_tiling", "tiled_ensemble"):
         tile = _pair(cfg[group]["tile_size"], f"{group}.tile_size")
         stride = _pair(cfg[group]["stride"], f"{group}.stride")
@@ -110,6 +110,8 @@ def load_config(path: str | Path) -> dict:
         raise ValueError("cflow.condition_vector must be divisible by 4")
     if cfg["cflow"]["fiber_batch_size"] < 1 or cfg["cflow"]["epochs"] < 1:
         raise ValueError("cflow.fiber_batch_size and cflow.epochs must be positive")
+    if type(cfg["cflow"]["tile_batch_size"]) is not int or cfg["cflow"]["tile_batch_size"] < 1:
+        raise ValueError("cflow.tile_batch_size must be a positive integer")
     if data["batch_size"] < 1 or data["num_workers"] < 0:
         raise ValueError("data.batch_size must be positive and num_workers nonnegative")
     for field in ("max_train", "max_test"):

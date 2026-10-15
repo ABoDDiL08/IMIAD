@@ -94,23 +94,24 @@ class PipelineTest(unittest.TestCase):
         }
 
     def _check_run(self, model: str, tile_resize: tuple[int, int] = (32, 32),
-                   storage: str = "disk", neighbors: int = 1) -> None:
+                   storage: str = "disk", neighbors: int = 1,
+                   shared_cflow: bool = False) -> None:
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as temp:
             root = Path(temp)
             cfg = {
                 "experiment": {"name": "smoke", "device": "cpu", "output_dir": str(root / "runs")},
-                "data": self._make_dataset(root, variable=model == "patchcore"),
+                "data": self._make_dataset(root, variable=model == "patchcore" or shared_cflow),
                 "model": {"name": model, "backbone": "resnet18",
                           "layers": ["layer2"], "pretrained": False},
-                "input_tiling": {"enabled": model == "patchcore", "tile_size": [32, 32],
+                "input_tiling": {"enabled": model == "patchcore" or shared_cflow, "tile_size": [32, 32],
                                  "stride": [12, 12], "tile_resize": list(tile_resize)},
-                "tiled_ensemble": {"enabled": model == "cflow", "tile_size": [32, 32],
+                "tiled_ensemble": {"enabled": model == "cflow" and not shared_cflow, "tile_size": [32, 32],
                                    "stride": [32, 32]},
                 "patchcore": {"coreset_ratio": 0.1, "num_neighbors": neighbors,
                               "embedding_storage": storage, "tile_batch_size": 3,
                               "distance_bank_chunk_size": 7},
                 "cflow": {"condition_vector": 16, "coupling_blocks": 1,
-                          "fiber_batch_size": 8, "epochs": 1},
+                          "fiber_batch_size": 8, "epochs": 1, "tile_batch_size": 3},
                 "evaluation": {"fps_warmup": 0, "aupro_thresholds": 25,
                                "pixel_auroc_bins": 128},
             }
@@ -149,6 +150,9 @@ class PipelineTest(unittest.TestCase):
 
     def test_cflow_tiled_ensemble(self) -> None:
         self._check_run("cflow")
+
+    def test_cflow_shared_input_tiling(self) -> None:
+        self._check_run("cflow", tile_resize=(48, 40), shared_cflow=True)
 
     def test_tiler_coverage(self) -> None:
         image = torch.rand(2, 3, 70, 71)

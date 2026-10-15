@@ -1,0 +1,47 @@
+experiment:
+  name: phone_battery_c1_cflow_input_tiling_global
+  seed: 42
+  device: auto
+  output_dir: ../runs
+data:
+  format: real_iad
+  root: /kaggle/input/datasets/anhbodoidilinh08/real-iad-subset
+  metadata: /kaggle/input/datasets/anhbodoidilinh08/real-iad-subset/realiad_jsons_sv/phone_battery.json
+  category: phone_battery
+  camera: C1
+  resolution: raw
+  image_size: null
+  batch_size: 1
+  num_workers: 0
+  strict_files: true
+  max_train: 10
+  max_test: 50
+model:
+  name: cflow
+  backbone: wide_resnet50_2
+  layers: [layer2, layer3, layer4]
+  pretrained: true
+input_tiling:
+  enabled: true
+  tile_size: [1000, 912]
+  stride: [1000, 912]
+  tile_resize: [250, 228]
+  mode: padding
+  remove_border_count: 0
+tiled_ensemble:
+  enabled: false
+cflow:
+  condition_vector: 128
+  coupling_blocks: 8
+  clamp_alpha: 1.9
+  fiber_batch_size: 64
+  tile_batch_size: 8
+  learning_rate: 0.0001
+  epochs: 10
+evaluation:
+  aupro_fpr_limit: 0.3
+  aupro_thresholds: 200
+  pixel_auroc_bins: 4096
+  fps_warmup: 2
+  save_maps: false
+  save_checkpoint: false

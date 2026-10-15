@@ -1,4 +1,4 @@
-"""Conditional flow and one-model-per-position tiled ensemble."""
+"""Conditional flow with shared global-coordinate tiling or tiled ensemble."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from .features import FeatureEncoder
-from .tiling import GridTiler
+from .tiling import Grid, GridTiler
 
 
 def positional_encoding_2d(dimension: int, height: int, width: int,
@@ -36,6 +36,37 @@ def _subnet(input_dim: int, output_dim: int) -> nn.Module:
                          nn.Linear(2 * input_dim, output_dim))
 
 
+def global_positional_encoding_2d(dimension: int, height: int, width: int,
+                                  device: torch.device, indices: list[int],
+                                  grid: Grid, tile_size: tuple[int, int],
+                                  stride: tuple[int, int], mode: str) -> torch.Tensor:
+    """Encode feature-cell centers in original-image pixels, including tile offsets.
+
+    Resize is accounted for by mapping the feature grid directly to the raw
+    tile extent. In interpolation mode the padded canvas is mapped back to the
+    original image. Padding mode retains coordinates outside the image bounds.
+    """
+    if dimension % 4:
+        raise ValueError("Condition dimension must be divisible by four")
+    half = dimension // 2
+    frequencies = torch.exp(torch.arange(0, half, 2, device=device) * (-log(10000) / half))
+    tile_ids = torch.tensor(indices, device=device) % (grid.rows * grid.cols)
+    rows, cols = tile_ids // grid.cols, tile_ids % grid.cols
+    y = rows[:, None] * stride[0] + (torch.arange(height, device=device) + 0.5) * tile_size[0] / height
+    x = cols[:, None] * stride[1] + (torch.arange(width, device=device) + 0.5) * tile_size[1] / width
+    if mode == "interpolation":
+        y = y * grid.image_h / grid.padded_h
+        x = x * grid.image_w / grid.padded_w
+    y = (y - 0.5).unsqueeze(-1) * frequencies
+    x = (x - 0.5).unsqueeze(-1) * frequencies
+    position = torch.empty(len(indices), dimension, height, width, device=device)
+    position[:, :half:2] = x.sin().transpose(1, 2).unsqueeze(2)
+    position[:, 1:half:2] = x.cos().transpose(1, 2).unsqueeze(2)
+    position[:, half::2] = y.sin().transpose(1, 2).unsqueeze(3)
+    position[:, half + 1::2] = y.cos().transpose(1, 2).unsqueeze(3)
+    return position
+
+
 class CFlowModel(nn.Module):
     def __init__(self, cfg: dict) -> None:
         super().__init__()
@@ -57,14 +88,17 @@ class CFlowModel(nn.Module):
                                global_affine_type="SOFTPLUS", permute_soft=False)
             self.decoders.append(decoder)
 
-    def fibers(self, images: torch.Tensor):
+    def fibers(self, images: torch.Tensor, position_context: dict | None = None):
         with torch.no_grad():
             activations = self.encoder(images)
         for layer, decoder in zip(self.layers, self.decoders):
             feature = activations[layer]
             batch, channels, height, width = feature.shape
-            condition = positional_encoding_2d(self.condition_vector, height, width,
-                                               images.device).unsqueeze(0)
+            condition = (positional_encoding_2d(self.condition_vector, height, width,
+                                                images.device).unsqueeze(0)
+                         if position_context is None else global_positional_encoding_2d(
+                             self.condition_vector, height, width, images.device,
+                             **position_context))
             condition = condition.expand(batch, -1, -1, -1)
             condition = condition.permute(0, 2, 3, 1).reshape(-1, self.condition_vector)
             vectors = feature.permute(0, 2, 3, 1).reshape(-1, channels)
@@ -103,12 +137,12 @@ class CFlowRunner:
         self.optimizer = torch.optim.Adam(self.model.decoders.parameters(),
                                           lr=cfg["cflow"]["learning_rate"])
 
-    def train_batch(self, images: torch.Tensor) -> float:
+    def train_batch(self, images: torch.Tensor, position_context: dict | None = None) -> float:
         model = self.model
         model.encoder.eval()
         model.decoders.train()
         losses: list[float] = []
-        for vectors, condition, decoder, _ in model.fibers(images.to(self.device)):
+        for vectors, condition, decoder, _ in model.fibers(images.to(self.device), position_context):
             permutation = torch.randperm(len(vectors), device=self.device)
             for ids in permutation.split(model.fiber_batch_size):
                 self.optimizer.zero_grad(set_to_none=True)
@@ -134,6 +168,68 @@ class CFlowRunner:
 
     def save(self, path: Path) -> None:
         torch.save(self.model.state_dict(), path)
+
+
+class TiledCFlowRunner(CFlowRunner):
+    """One shared CFLOW with global coordinates and streamed native-image tiles."""
+
+    def __init__(self, cfg: dict, device: torch.device) -> None:
+        super().__init__(cfg, device)
+        tile = cfg["input_tiling"]
+        self.tiler = GridTiler(tile["tile_size"], tile["stride"], tile["mode"],
+                               tile["remove_border_count"])
+        self.tile_resize = tuple(tile["tile_resize"])
+        self.tile_batch_size = cfg["cflow"]["tile_batch_size"]
+
+    def tile_batches(self, images: torch.Tensor):
+        for indices, tiles in self.tiler.iter_tiles(images.cpu(), self.tile_batch_size):
+            if tiles.shape[-2:] != self.tile_resize:
+                tiles = F.interpolate(tiles, size=self.tile_resize,
+                                      mode="bilinear", align_corners=False)
+            context = {"indices": indices, "grid": self.tiler.grid,
+                       "tile_size": self.tiler.tile_size, "stride": self.tiler.stride,
+                       "mode": self.tiler.mode}
+            yield indices, tiles.to(self.device), context
+
+    def fit(self, loader) -> list[float]:
+        history = []
+        for _ in range(self.cfg["cflow"]["epochs"]):
+            total, count = 0.0, 0
+            for batch in loader:
+                for indices, tiles, context in self.tile_batches(batch["image"]):
+                    total += self.train_batch(tiles, context) * len(indices)
+                    count += len(indices)
+            history.append(total / max(1, count))
+        self.model.eval()
+        return history
+
+    @torch.inference_mode()
+    def predict(self, image: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        if image.shape[0] != 1:
+            raise ValueError("Tiled CFLOW inference expects one image")
+        self.model.eval()
+        accumulator = None
+        for indices, tiles, context in self.tile_batches(image):
+            if accumulator is None:
+                accumulator = self.tiler.map_accumulator()
+            maps = []
+            for vectors, condition, decoder, (batch, height, width) in self.model.fibers(tiles, context):
+                logp = []
+                for vectors_chunk, condition_chunk in zip(
+                        vectors.split(self.model.fiber_batch_size),
+                        condition.split(self.model.fiber_batch_size)):
+                    latent, jacobian = decoder(vectors_chunk, [condition_chunk])
+                    logp.append(self.model.log_probability(vectors_chunk.shape[1], latent, jacobian))
+                # Raw negative log likelihood keeps tiles and tile batches on
+                # the same scale; no per-tile or per-batch max normalization.
+                maps.append(F.interpolate(-torch.cat(logp).reshape(batch, 1, height, width),
+                                          size=self.tiler.tile_size, mode="bilinear",
+                                          align_corners=False))
+            accumulator.add(indices, torch.stack(maps).mean(dim=0).cpu())
+        if accumulator is None:
+            raise ValueError("No tiles generated")
+        merged = accumulator.result().squeeze(1)
+        return merged.flatten(1).amax(dim=1), merged
 
 
 class TiledCFlowEnsemble:
