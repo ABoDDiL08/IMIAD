@@ -14,8 +14,8 @@ data:
   batch_size: 1
   num_workers: 0
   strict_files: true
-  max_train: 10
-  max_test: 50  # Set to 100 to sample test images proportionally by OK/defect class.
+  max_train: 100
+  max_test: 100  # Set to 100 to sample test images proportionally by OK/defect class.
 model:
   name: patchcore
   backbone: wide_resnet50_2
