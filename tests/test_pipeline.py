@@ -14,13 +14,58 @@ from PIL import Image
 
 from imiad.config import load_config
 from imiad.coreset_disk import select_coreset
-from imiad.data import ImageDataset, load_records
+from imiad.data import ImageDataset, Record, load_records, proportional_test_sample
 from imiad.patchcore import kcenter_coreset
 from imiad.run import run
 from imiad.tiling import GridTiler
 
 
 class PipelineTest(unittest.TestCase):
+    def test_proportional_test_sampling_by_defect_type(self) -> None:
+        records = (
+            [Record(Path(f"ok_{i}"), None, 0, "OK") for i in range(300)]
+            + [Record(Path(f"defect1_{i}"), None, 1, "defect1") for i in range(250)]
+            + [Record(Path(f"defect2_{i}"), None, 1, "defect2") for i in range(100)]
+        )
+        selected = proportional_test_sample(records, 100, seed=42)
+        self.assertEqual(len(selected), 100)
+        self.assertEqual({name: sum(r.defect_type == name for r in selected)
+                          for name in ("OK", "defect1", "defect2")},
+                         {"OK": 46, "defect1": 39, "defect2": 15})
+        self.assertEqual(selected, proportional_test_sample(records, 100, seed=42))
+        self.assertNotEqual(selected, proportional_test_sample(records, 100, seed=43))
+        self.assertIs(proportional_test_sample(records, 650, seed=42), records)
+
+    def test_real_iad_preserves_defect_types_for_sampling(self) -> None:
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as temp:
+            root = Path(temp)
+            image_dir = root / "realiad_raw" / "item"
+            image_dir.mkdir(parents=True)
+            train = [{"image_path": "train_C1_0.png", "anomaly_class": "OK"}]
+            test = []
+            for name, count in (("OK", 3), ("scratch", 2), ("dent", 1)):
+                for index in range(count):
+                    image_name = f"{name}_C1_{index}.png"
+                    (image_dir / image_name).touch()
+                    item = {"image_path": image_name, "anomaly_class": name}
+                    if name != "OK":
+                        mask_name = f"{name}_C1_{index}_mask.png"
+                        (image_dir / mask_name).touch()
+                        item["mask_path"] = mask_name
+                    test.append(item)
+            (image_dir / "train_C1_0.png").touch()
+            metadata = root / "item.json"
+            metadata.write_text(json.dumps({"meta": {"normal_class": "OK"},
+                                            "train": train, "test": test}), encoding="utf-8")
+            _, selected = load_records({"format": "real_iad", "root": str(root),
+                                        "metadata": str(metadata), "category": "item",
+                                        "camera": "C1", "resolution": "raw",
+                                        "strict_files": True, "max_test": 4})
+            self.assertEqual(len(selected), 4)
+            self.assertEqual({name: sum(r.defect_type == name for r in selected)
+                              for name in ("OK", "scratch", "dent")},
+                             {"OK": 2, "scratch": 1, "dent": 1})
+
     def _make_dataset(self, root: Path, variable: bool = False) -> dict:
         folders = {name: root / name for name in ("train", "normal", "anomaly", "masks")}
         for folder in folders.values():

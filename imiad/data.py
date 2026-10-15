@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import random
 import re
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -23,6 +25,7 @@ class Record:
     image: Path
     mask: Path | None
     label: int
+    defect_type: str = "OK"
 
 
 def _existing_image(root: Path, category: str, rel: Path, resolution: str) -> Path:
@@ -65,7 +68,8 @@ def real_iad_records(data: dict) -> tuple[list[Record], list[Record]]:
             if not pattern.search(rel.name):
                 continue
             image = _existing_image(root, category, rel, resolution)
-            label = int(item["anomaly_class"] != normal_name)
+            defect_type = str(item["anomaly_class"])
+            label = int(defect_type != normal_name)
             mask_rel = item.get("mask_path")
             mask = _existing_image(root, category, Path(mask_rel), resolution) if mask_rel else None
             if not image.is_file() or (mask is not None and not mask.is_file()):
@@ -75,7 +79,7 @@ def real_iad_records(data: dict) -> tuple[list[Record], list[Record]]:
                 raise ValueError("Real-IAD train split contains an anomalous label")
             if split_idx == 1 and label and mask is None:
                 raise ValueError(f"Anomalous test image has no mask: {image}")
-            sets[split_idx].append(Record(image, mask, label))
+            sets[split_idx].append(Record(image, mask, label, defect_type))
     if missing and data["strict_files"]:
         raise FileNotFoundError(f"{len(missing)} Real-IAD files missing; first: {missing[0]}")
     if not sets[0] or not sets[1]:
@@ -108,7 +112,8 @@ def folder_records(data: dict) -> tuple[list[Record], list[Record]]:
         mask = next((m for m in candidates if m.is_file()), None)
         if mask is None:
             missing.append(str(p))
-        test.append(Record(p, mask, 1))
+        defect_type = rel.parts[0] if len(rel.parts) > 1 else anomaly_dir.name
+        test.append(Record(p, mask, 1, defect_type))
     if not train or not test:
         raise ValueError("Folder dataset has an empty train or test split")
     if missing:
@@ -119,7 +124,30 @@ def folder_records(data: dict) -> tuple[list[Record], list[Record]]:
     return train, sorted(test, key=lambda x: str(x.image))
 
 
-def load_records(data: dict) -> tuple[list[Record], list[Record]]:
+def proportional_test_sample(records: list[Record], limit: int, seed: int) -> list[Record]:
+    """Sample exactly limit records by defect class using largest remainders."""
+    if limit < 1:
+        raise ValueError("data.max_test must be positive")
+    if limit >= len(records):
+        return records
+    groups: dict[tuple[int, str], list[int]] = defaultdict(list)
+    for index, record in enumerate(records):
+        groups[(record.label, record.defect_type)].append(index)
+    total = len(records)
+    quotas = {key: divmod(len(indices) * limit, total)[0]
+              for key, indices in groups.items()}
+    remainders = {key: divmod(len(indices) * limit, total)[1]
+                  for key, indices in groups.items()}
+    remaining = limit - sum(quotas.values())
+    for key in sorted(groups, key=lambda key: (-remainders[key], -len(groups[key]), key))[:remaining]:
+        quotas[key] += 1
+    rng = random.Random(seed)
+    chosen = {index for key, indices in groups.items()
+              for index in rng.sample(indices, quotas[key])}
+    return [record for index, record in enumerate(records) if index in chosen]
+
+
+def load_records(data: dict, seed: int = 42) -> tuple[list[Record], list[Record]]:
     if data["format"] == "real_iad":
         train, test = real_iad_records(data)
     else:
@@ -127,11 +155,7 @@ def load_records(data: dict) -> tuple[list[Record], list[Record]]:
     if data.get("max_train") is not None:
         train = train[:int(data["max_train"])]
     if data.get("max_test") is not None:
-        # Stratified truncation keeps both classes in small smoke runs.
-        cap = int(data["max_test"])
-        normal = [r for r in test if r.label == 0][: max(1, cap // 2)]
-        anomaly = [r for r in test if r.label == 1][: max(1, cap - len(normal))]
-        test = normal + anomaly
+        test = proportional_test_sample(test, int(data["max_test"]), seed)
     if not train or not test:
         raise ValueError("Dataset cap left an empty train or test split")
     return train, test

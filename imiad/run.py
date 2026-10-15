@@ -8,6 +8,7 @@ import json
 import random
 import time
 import traceback
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -87,10 +88,11 @@ def run(config_path: str | Path) -> Path:
         _seed(int(cfg["experiment"]["seed"]))
         device = _device(cfg["experiment"]["device"])
         report["device"] = str(device)
-        train_records, test_records = load_records(cfg["data"])
+        train_records, test_records = load_records(cfg["data"], seed=int(cfg["experiment"]["seed"]))
         report["dataset"] = {"train_images": len(train_records),
                              "test_images": len(test_records),
-                             "test_anomalies": sum(x.label for x in test_records)}
+                             "test_anomalies": sum(x.label for x in test_records),
+                             "test_class_counts": dict(Counter(x.defect_type for x in test_records))}
         train_set = ImageDataset(train_records, cfg["data"]["image_size"])
         test_set = ImageDataset(test_records, cfg["data"]["image_size"])
         train_loader = DataLoader(train_set, batch_size=cfg["data"]["batch_size"],

@@ -111,6 +111,10 @@ def load_config(path: str | Path) -> dict:
         raise ValueError("cflow.fiber_batch_size and cflow.epochs must be positive")
     if data["batch_size"] < 1 or data["num_workers"] < 0:
         raise ValueError("data.batch_size must be positive and num_workers nonnegative")
+    for field in ("max_train", "max_test"):
+        value = data[field]
+        if value is not None and (type(value) is not int or value < 1):
+            raise ValueError(f"data.{field} must be a positive integer or null")
     if cfg["evaluation"]["aupro_thresholds"] < 2:
         raise ValueError("evaluation.aupro_thresholds must be at least two")
     if cfg["evaluation"]["fps_warmup"] < 0:

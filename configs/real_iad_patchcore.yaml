@@ -15,6 +15,7 @@ data:
   num_workers: 0
   strict_files: true
   max_train: 10
+  max_test: 50  # Set to 100 to sample test images proportionally by OK/defect class.
 model:
   name: patchcore
   backbone: wide_resnet50_2
@@ -22,9 +23,9 @@ model:
   pretrained: true
 input_tiling:
   enabled: true
-  tile_size: [512, 512]   # Raw-image pixels before the backbone.
-  stride: [512, 512]
-  tile_resize: [256, 256] # Network input per tile; equal to tile_size skips resize.
+  tile_size: [1000, 912]   # Raw-image pixels before the backbone.
+  stride: [1000, 912]
+  tile_resize: [250, 228] # Network input per tile; equal to tile_size skips resize.
   mode: padding
   remove_border_count: 0
 tiled_ensemble:
