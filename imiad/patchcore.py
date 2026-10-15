@@ -198,13 +198,18 @@ class PatchCoreRunner:
             self.model.blur.cpu()
 
     @torch.no_grad()
-    def fit(self, loader) -> None:
+    def fit(self, loader, progress=None) -> None:
         self.model.eval()
         if self.model.tiler is None:
             rows = []
-            for batch in loader:
+            for batch_index, batch in enumerate(loader, start=1):
+                if progress is not None:
+                    progress("train_embeddings", batches_done=batch_index - 1,
+                             batches_total=len(loader))
                 embedding = self.model.embedding(batch["image"].to(self.device))
                 rows.append(embedding.permute(0, 2, 3, 1).reshape(-1, embedding.shape[1]).cpu())
+            if progress is not None:
+                progress("train_coreset_selection", candidate_patches=sum(len(row) for row in rows))
             bank = kcenter_coreset(torch.cat(rows), self.cfg["patchcore"]["coreset_ratio"],
                                    self.cfg["patchcore"]["projection_eps"])
             self.model.memory_bank = bank.to(self.device)
@@ -214,7 +219,10 @@ class PatchCoreRunner:
                 rows = []
                 total, dimension = 0, None
                 with path.open("wb") as stream:
-                    for batch in loader:
+                    for batch_index, batch in enumerate(loader, start=1):
+                        if progress is not None:
+                            progress("train_embeddings", batches_done=batch_index - 1,
+                                     batches_total=len(loader))
                         for _, embedding in self.model.tile_embeddings(batch["image"]):
                             patches = embedding.permute(0, 2, 3, 1).reshape(-1, embedding.shape[1]).contiguous()
                             dimension = patches.shape[1]
@@ -223,11 +231,17 @@ class PatchCoreRunner:
                                 patches.numpy().tofile(stream)
                             else:
                                 rows.append(patches)
+                if progress is not None:
+                    progress("train_embeddings", batches_done=len(loader),
+                             batches_total=len(loader), candidate_patches=total)
                 if self.cfg["patchcore"]["embedding_storage"] == "disk":
                     bank = select_coreset(path, total, dimension,
                                           self.cfg["patchcore"]["coreset_ratio"],
-                                          self.cfg["patchcore"]["projection_eps"])
+                                          self.cfg["patchcore"]["projection_eps"],
+                                          progress=progress)
                 else:
+                    if progress is not None:
+                        progress("train_coreset_selection", candidate_patches=total)
                     bank = kcenter_coreset(torch.cat(rows), self.cfg["patchcore"]["coreset_ratio"],
                                            self.cfg["patchcore"]["projection_eps"])
             self.model.memory_bank = bank.cpu()

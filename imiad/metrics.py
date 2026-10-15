@@ -69,13 +69,22 @@ def aupro(maps: list[np.ndarray], masks: list[np.ndarray],
 
 def evaluate(image_labels: list[int], image_scores: list[float],
              maps: list[np.ndarray], masks: list[np.ndarray],
-             fpr_limit: float, thresholds: int) -> dict:
+             fpr_limit: float, thresholds: int, progress=None) -> dict:
+    if progress is not None:
+        progress("test_metrics_image_auroc")
     image_auroc = _auroc(np.asarray(image_labels), np.asarray(image_scores))
+    if progress is not None:
+        progress("test_metrics_pixel_arrays", images_total=len(maps))
     pixel_labels = np.concatenate([np.asarray(x, dtype=np.uint8).reshape(-1) for x in masks])
     pixel_scores = np.concatenate([np.asarray(x, dtype=np.float32).reshape(-1) for x in maps])
+    if progress is not None:
+        progress("test_metrics_pixel_auroc", pixel_count=len(pixel_scores))
     pixel_auroc = _auroc(pixel_labels, pixel_scores)
+    if progress is not None:
+        progress("test_metrics_aupro", images_total=len(maps))
+    aupro_score = aupro(maps, masks, fpr_limit, thresholds)
     return {
         "I-AUROC": image_auroc,
         "P-AUROC": pixel_auroc,
-        "AUPRO": aupro(maps, masks, fpr_limit, thresholds),
+        "AUPRO": aupro_score,
     }

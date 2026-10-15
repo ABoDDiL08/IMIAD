@@ -121,6 +121,12 @@ class PipelineTest(unittest.TestCase):
             result = Path(run(config_file))
             report = json.loads(result.read_text(encoding="utf-8"))
             self.assertEqual(report["status"], "completed")
+            self.assertEqual(report["phase"], "completed")
+            progress_log = (result.parent / "progress.log").read_text(encoding="utf-8")
+            if model == "patchcore":
+                self.assertIn("train_coreset_selection", progress_log)
+            self.assertIn("test_inference", progress_log)
+            self.assertIn("test_metrics_pixel_auroc", progress_log)
             self.assertEqual(report["dataset"]["test_images"], 2)
             for name in ("I-AUROC", "P-AUROC", "AUPRO", "train_time_seconds", "inference_fps"):
                 self.assertIsNotNone(report["metrics"][name], name)

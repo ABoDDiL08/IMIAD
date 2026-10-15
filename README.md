@@ -37,6 +37,8 @@ Set `data.batch_size: 1` for PatchCore when raw training images have different d
 
 Every invocation creates a unique `runs/<experiment>_<UTC time>_<id>/` containing `config_resolved.yaml`, `metrics.json`, and on success `predictions.csv`. Optional `model.pt` and `maps/*.npy` are controlled by the YAML. Failed runs leave `metrics.json` with `status: failed` and an `error.txt` traceback.
 
+The runner prints timestamped progress and appends it to `progress.log`. It also updates `metrics.json` with the current `phase` and progress counts after each training batch, coreset milestone, and test image. If the process is killed by the OS before Python can handle an exception, `status` may remain `running`; the last saved `phase` and `progress.log` show whether it stopped during training, inference, or metric calculation. A normal Python exception sets `status: failed` and writes `error.txt`.
+
 `metrics.json` stores:
 
 - `I-AUROC`: AUROC of image labels and model image scores.

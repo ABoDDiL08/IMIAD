@@ -68,7 +68,7 @@ def run(config_path: str | Path) -> Path:
         yaml.safe_dump(_yaml_safe({k: v for k, v in cfg.items() if not k.startswith("_")}),
                        sort_keys=False, allow_unicode=True), encoding="utf-8")
     report = {
-        "status": "running", "run_id": run_dir.name,
+        "status": "running", "phase": "initializing", "run_id": run_dir.name,
         "started_at_utc": datetime.now(timezone.utc).isoformat(),
         "config_path": cfg["_config_path"],
         "model": cfg["model"]["name"],
@@ -80,14 +80,26 @@ def run(config_path: str | Path) -> Path:
     report_path = run_dir / "metrics.json"
 
     def save_report() -> None:
-        report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False,
-                                          allow_nan=False), encoding="utf-8")
+        temporary_path = report_path.with_suffix(".json.tmp")
+        temporary_path.write_text(json.dumps(report, indent=2, ensure_ascii=False,
+                                             allow_nan=False), encoding="utf-8")
+        temporary_path.replace(report_path)
+
+    def progress(phase: str, **details: object) -> None:
+        report["phase"] = phase
+        report["progress"] = details
+        message = f"[{datetime.now(timezone.utc).isoformat()}] {phase} {details}"
+        print(message, flush=True)
+        with (run_dir / "progress.log").open("a", encoding="utf-8") as stream:
+            stream.write(message + "\n")
+        save_report()
 
     save_report()
     try:
         _seed(int(cfg["experiment"]["seed"]))
         device = _device(cfg["experiment"]["device"])
         report["device"] = str(device)
+        progress("loading_data")
         train_records, test_records = load_records(cfg["data"], seed=int(cfg["experiment"]["seed"]))
         report["dataset"] = {"train_images": len(train_records),
                              "test_images": len(test_records),
@@ -100,13 +112,17 @@ def run(config_path: str | Path) -> Path:
         # One test image per forward makes CFLOW likelihood normalization stable.
         test_loader = DataLoader(test_set, batch_size=1, shuffle=False,
                                  num_workers=cfg["data"]["num_workers"])
+        progress("building_model", train_images=len(train_records), test_images=len(test_records))
         model = build_runner(cfg, device)
         cpu_tiled_patchcore = cfg["model"]["name"] == "patchcore" and cfg["input_tiling"]["enabled"]
         _sync(device)
         start = time.perf_counter()
-        history = model.fit(train_loader)
+        progress("train_start", train_images=len(train_records))
+        history = (model.fit(train_loader, progress=progress)
+                   if cfg["model"]["name"] == "patchcore" else model.fit(train_loader))
         _sync(device)
         report["metrics"]["train_time_seconds"] = time.perf_counter() - start
+        progress("train_complete", train_time_seconds=report["metrics"]["train_time_seconds"])
         if history is not None:
             report["train_loss"] = history
         if cfg["evaluation"]["save_checkpoint"]:
@@ -114,6 +130,7 @@ def run(config_path: str | Path) -> Path:
 
         warmup = int(cfg["evaluation"]["fps_warmup"])
         if warmup:
+            progress("test_warmup", warmup_runs=warmup)
             first = next(iter(test_loader))["image"]
             if not cpu_tiled_patchcore:
                 first = first.to(device)
@@ -130,6 +147,7 @@ def run(config_path: str | Path) -> Path:
         map_dir = run_dir / "maps"
         if cfg["evaluation"]["save_maps"]:
             map_dir.mkdir()
+        progress("test_inference", images_done=0, images_total=len(test_records))
         for index, batch in enumerate(test_loader):
             image = batch["image"] if cpu_tiled_patchcore else batch["image"].to(device)
             _sync(device)
@@ -150,10 +168,12 @@ def run(config_path: str | Path) -> Path:
             rows.append({"path": batch["path"][0], "label": label, "score": score})
             if cfg["evaluation"]["save_maps"]:
                 np.save(map_dir / f"{index:06d}.npy", anomaly_map)
+            progress("test_inference", images_done=index + 1, images_total=len(test_records))
         report["metrics"].update(evaluate(
             image_labels, image_scores, maps, masks,
             cfg["evaluation"]["aupro_fpr_limit"],
             cfg["evaluation"]["aupro_thresholds"],
+            progress=progress,
         ))
         report["metrics"]["inference_fps"] = len(test_records) / inference_seconds
         report["fps_scope"] = (
@@ -162,14 +182,20 @@ def run(config_path: str | Path) -> Path:
             if cpu_tiled_patchcore else
             "model forward only; one preloaded image at a time; device synchronized"
         )
+        progress("writing_outputs")
         with (run_dir / "predictions.csv").open("w", newline="", encoding="utf-8") as stream:
             writer = csv.DictWriter(stream, fieldnames=["path", "label", "score"])
             writer.writeheader()
             writer.writerows(rows)
         report["status"] = "completed"
+        progress("completed")
     except Exception as exc:
         report["status"] = "failed"
         report["error"] = f"{type(exc).__name__}: {exc}"
+        message = f"Run failed during {report['phase']}: {report['error']}"
+        print(message, flush=True)
+        with (run_dir / "progress.log").open("a", encoding="utf-8") as stream:
+            stream.write(message + "\n")
         (run_dir / "error.txt").write_text(traceback.format_exc(), encoding="utf-8")
         raise
     finally:
