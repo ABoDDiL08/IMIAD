@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 from scipy import ndimage
 from scipy.integrate import trapezoid
 from sklearn.metrics import roc_auc_score
+
+
+def _array(value: np.ndarray | Path) -> np.ndarray:
+    return np.load(value, mmap_mode="r") if isinstance(value, Path) else np.asarray(value)
 
 
 def _auroc(labels: np.ndarray, scores: np.ndarray) -> float | None:
@@ -25,17 +31,19 @@ def pixel_auroc_histogram(maps: list[np.ndarray], masks: list[np.ndarray],
         raise ValueError("Anomaly maps and masks must have the same length")
     if not maps:
         return None
-    low = min(float(np.min(scores)) for scores in maps)
-    high = max(float(np.max(scores)) for scores in maps)
+    low = min(float(np.min(_array(scores))) for scores in maps)
+    high = max(float(np.max(_array(scores))) for scores in maps)
     if not np.isfinite(low) or not np.isfinite(high):
         raise ValueError("Anomaly maps must contain finite values")
     positives = np.zeros(bins, dtype=np.int64)
     negatives = np.zeros(bins, dtype=np.int64)
     for image_index, (scores, mask) in enumerate(zip(maps, masks), start=1):
-        flat_scores = np.asarray(scores, dtype=np.float32).reshape(-1)
-        flat_mask = np.asarray(mask, dtype=np.uint8).reshape(-1)
-        if flat_scores.size != flat_mask.size or np.shape(scores) != np.shape(mask):
+        score_array = _array(scores)
+        mask_array = _array(mask)
+        if score_array.shape != mask_array.shape:
             raise ValueError("Anomaly map and mask shapes differ")
+        flat_scores = np.asarray(score_array, dtype=np.float32).reshape(-1)
+        flat_mask = np.asarray(mask_array, dtype=np.uint8).reshape(-1)
         for start in range(0, flat_scores.size, 1_000_000):
             end = min(start + 1_000_000, flat_scores.size)
             values = flat_scores[start:end]
@@ -62,7 +70,7 @@ def aupro(maps: list[np.ndarray], masks: list[np.ndarray],
     """
     if not maps or len(maps) != len(masks):
         return None
-    bounds = [(float(np.min(m)), float(np.max(m))) for m in maps]
+    bounds = [(float(np.min(_array(m))), float(np.max(_array(m)))) for m in maps]
     low, high = min(b[0] for b in bounds), max(b[1] for b in bounds)
     if not np.isfinite(low) or not np.isfinite(high):
         raise ValueError("Anomaly maps must contain finite values")
@@ -74,8 +82,8 @@ def aupro(maps: list[np.ndarray], masks: list[np.ndarray],
     region_sum = np.zeros(len(thresholds), dtype=np.float64)
     region_count = 0
     for scores, mask in zip(maps, masks):
-        scores = np.asarray(scores, dtype=np.float32)
-        mask = np.asarray(mask, dtype=bool)
+        scores = np.asarray(_array(scores), dtype=np.float32)
+        mask = np.asarray(_array(mask), dtype=bool)
         if scores.shape != mask.shape:
             raise ValueError("Anomaly map and mask shapes differ")
         background = np.sort(scores[~mask])
@@ -114,8 +122,8 @@ def evaluate(image_labels: list[int], image_scores: list[float],
     if pixel_auroc_bins is None:
         if progress is not None:
             progress("test_metrics_pixel_arrays", images_total=len(maps))
-        pixel_labels = np.concatenate([np.asarray(x, dtype=np.uint8).reshape(-1) for x in masks])
-        pixel_scores = np.concatenate([np.asarray(x, dtype=np.float32).reshape(-1) for x in maps])
+        pixel_labels = np.concatenate([np.asarray(_array(x), dtype=np.uint8).reshape(-1) for x in masks])
+        pixel_scores = np.concatenate([np.asarray(_array(x), dtype=np.float32).reshape(-1) for x in maps])
         if progress is not None:
             progress("test_metrics_pixel_auroc", pixel_count=len(pixel_scores))
         pixel_auroc = _auroc(pixel_labels, pixel_scores)

@@ -28,6 +28,9 @@ DEFAULTS = {
               "learning_rate": 0.0001, "epochs": 10, "tile_batch_size": 8},
     "evaluation": {"aupro_fpr_limit": 0.3, "aupro_thresholds": 200,
                    "pixel_auroc_bins": None,
+                   "visualization": {"enabled": False, "image_threshold": None,
+                                     "train_quantile": 0.99, "correct_anomalies": 5,
+                                     "max_side": 1600},
                    "fps_warmup": 2, "save_maps": False, "save_checkpoint": False},
 }
 
@@ -123,6 +126,17 @@ def load_config(path: str | Path) -> dict:
     bins = cfg["evaluation"]["pixel_auroc_bins"]
     if bins is not None and (type(bins) is not int or bins < 2):
         raise ValueError("evaluation.pixel_auroc_bins must be null or an integer >= 2")
+    visual = cfg["evaluation"]["visualization"]
+    threshold = visual["image_threshold"]
+    if threshold is not None and (not isinstance(threshold, (int, float))
+                                  or not float("-inf") < threshold < float("inf")):
+        raise ValueError("evaluation.visualization.image_threshold must be a finite number or null")
+    if not 0 < visual["train_quantile"] <= 1:
+        raise ValueError("evaluation.visualization.train_quantile must be in (0, 1]")
+    if type(visual["correct_anomalies"]) is not int or visual["correct_anomalies"] < 0:
+        raise ValueError("evaluation.visualization.correct_anomalies must be nonnegative")
+    if type(visual["max_side"]) is not int or visual["max_side"] < 64:
+        raise ValueError("evaluation.visualization.max_side must be at least 64")
     if cfg["evaluation"]["fps_warmup"] < 0:
         raise ValueError("evaluation.fps_warmup must be nonnegative")
     if cfg["input_tiling"]["remove_border_count"] < 0:

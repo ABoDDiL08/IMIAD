@@ -98,6 +98,7 @@ class PipelineTest(unittest.TestCase):
                    shared_cflow: bool = False) -> None:
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as temp:
             root = Path(temp)
+            visualize = model == "patchcore" and tile_resize == (48, 48) and storage == "disk"
             cfg = {
                 "experiment": {"name": "smoke", "device": "cpu", "output_dir": str(root / "runs")},
                 "data": self._make_dataset(root, variable=model == "patchcore" or shared_cflow),
@@ -113,7 +114,9 @@ class PipelineTest(unittest.TestCase):
                 "cflow": {"condition_vector": 16, "coupling_blocks": 1,
                           "fiber_batch_size": 8, "epochs": 1, "tile_batch_size": 3},
                 "evaluation": {"fps_warmup": 0, "aupro_thresholds": 25,
-                               "pixel_auroc_bins": 128},
+                               "pixel_auroc_bins": 128,
+                               "visualization": {"enabled": visualize, "max_side": 64,
+                                                 "correct_anomalies": 1}},
             }
             config_file = root / "config.yaml"
             config_file.write_text(yaml.safe_dump(cfg), encoding="utf-8")
@@ -137,6 +140,10 @@ class PipelineTest(unittest.TestCase):
             self.assertGreater(report["metrics"]["inference_fps"], 0)
             self.assertTrue((result.parent / "predictions.csv").exists())
             self.assertFalse(list(result.parent.glob("imiad_patchcore_*")))
+            self.assertFalse(list(result.parent.glob("imiad_eval_*")))
+            if visualize:
+                self.assertTrue((result.parent / "visualizations" / "manifest.csv").exists())
+                self.assertEqual(sum(report["visualizations"]["counts"].values()), 2)
             self.assertIsInstance(yaml.safe_load((result.parent / "config_resolved.yaml").read_text()), dict)
 
     def test_patchcore_input_tiling(self) -> None:

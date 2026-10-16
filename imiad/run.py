@@ -11,6 +11,7 @@ import traceback
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from importlib.metadata import version
@@ -23,6 +24,7 @@ from .config import load_config
 from .data import ImageDataset, load_records
 from .metrics import evaluate
 from .models import build_runner
+from .visualization import CaseVisualizer
 
 
 def _sync(device: torch.device) -> None:
@@ -98,6 +100,7 @@ def run(config_path: str | Path) -> Path:
             stream.write(message + "\n")
         save_report()
 
+    evaluation_cache: TemporaryDirectory | None = None
     save_report()
     try:
         _seed(int(cfg["experiment"]["seed"]))
@@ -133,6 +136,35 @@ def run(config_path: str | Path) -> Path:
         if cfg["evaluation"]["save_checkpoint"]:
             model.save(run_dir / "model.pt")
 
+        visual_cfg = cfg["evaluation"]["visualization"]
+        visualizer = None
+        if visual_cfg["enabled"]:
+            threshold = visual_cfg["image_threshold"]
+            threshold_source = "configured"
+            if threshold is None:
+                normal_scores = []
+                calibration_loader = DataLoader(
+                    train_set, batch_size=1, shuffle=False,
+                    num_workers=cfg["data"]["num_workers"])
+                progress("visualization_threshold_calibration", images_done=0,
+                         images_total=len(train_records))
+                for calibration_index, batch in enumerate(calibration_loader, start=1):
+                    image = batch["image"] if cpu_input_tiling else batch["image"].to(device)
+                    scores, _ = model.predict(image)
+                    normal_scores.append(float(scores[0].detach().cpu()))
+                    progress("visualization_threshold_calibration", images_done=calibration_index,
+                             images_total=len(train_records))
+                threshold = float(np.quantile(normal_scores, visual_cfg["train_quantile"]))
+                threshold_source = f"train_normal_quantile_{visual_cfg['train_quantile']}"
+            visualizer = CaseVisualizer(
+                run_dir, float(threshold), visual_cfg["correct_anomalies"],
+                visual_cfg["max_side"])
+            report["visualizations"] = {"directory": str(visualizer.directory),
+                                        "image_threshold": float(threshold),
+                                        "threshold_source": threshold_source}
+            progress("visualization_threshold_ready", image_threshold=float(threshold),
+                     source=threshold_source)
+
         warmup = int(cfg["evaluation"]["fps_warmup"])
         if warmup:
             progress("test_warmup", warmup_runs=warmup)
@@ -145,13 +177,15 @@ def run(config_path: str | Path) -> Path:
 
         image_labels: list[int] = []
         image_scores: list[float] = []
-        maps: list[np.ndarray] = []
-        masks: list[np.ndarray] = []
+        maps: list[Path] = []
+        masks: list[Path] = []
         inference_seconds = 0.0
         rows: list[dict] = []
         map_dir = run_dir / "maps"
         if cfg["evaluation"]["save_maps"]:
             map_dir.mkdir()
+        evaluation_cache = TemporaryDirectory(prefix="imiad_eval_", dir=run_dir)
+        cache_dir = Path(evaluation_cache.name)
         progress("test_inference", images_done=0, images_total=len(test_records))
         for index, batch in enumerate(test_loader):
             image = batch["image"] if cpu_input_tiling else batch["image"].to(device)
@@ -168,12 +202,20 @@ def run(config_path: str | Path) -> Path:
                 raise ValueError(f"Non-finite prediction for {batch['path'][0]}")
             image_scores.append(score)
             image_labels.append(label)
-            maps.append(anomaly_map)
-            masks.append(mask)
             rows.append({"path": batch["path"][0], "label": label, "score": score})
-            if cfg["evaluation"]["save_maps"]:
-                np.save(map_dir / f"{index:06d}.npy", anomaly_map)
+            if visualizer is not None:
+                visualizer.consider(index, Path(batch["path"][0]), label, score,
+                                    anomaly_map, mask)
+            map_path = (map_dir if cfg["evaluation"]["save_maps"] else cache_dir) / f"{index:06d}.npy"
+            mask_path = cache_dir / f"{index:06d}_mask.npy"
+            np.save(map_path, anomaly_map)
+            np.save(mask_path, mask)
+            maps.append(map_path)
+            masks.append(mask_path)
             progress("test_inference", images_done=index + 1, images_total=len(test_records))
+        if visualizer is not None:
+            report["visualizations"].update(visualizer.finish())
+            progress("visualizations_complete", **report["visualizations"]["counts"])
         report["metrics"].update(evaluate(
             image_labels, image_scores, maps, masks,
             cfg["evaluation"]["aupro_fpr_limit"],
@@ -208,6 +250,8 @@ def run(config_path: str | Path) -> Path:
         (run_dir / "error.txt").write_text(traceback.format_exc(), encoding="utf-8")
         raise
     finally:
+        if evaluation_cache is not None:
+            evaluation_cache.cleanup()
         report["finished_at_utc"] = datetime.now(timezone.utc).isoformat()
         save_report()
     return report_path
