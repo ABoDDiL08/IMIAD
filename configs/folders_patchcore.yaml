@@ -5,28 +5,39 @@ experiment:
   output_dir: ../runs
 data:
   format: folders
-  train_normal_dir: ../dataset/train/good
-  test_normal_dir: ../dataset/test/good
-  test_anomaly_dir: ../dataset/test/defect
-  mask_dir: ../dataset/ground_truth/defect
-  mask_suffix: _mask
-  mask_extension: .png
+  train_normal_dir: ../dataset/train/good # Cần thay thế
+  test_normal_dir: ../dataset/test/good # Cần thay thế
+  test_anomaly_dir: ../dataset/test/defect # Cần thay thế
+  mask_dir: ../dataset/ground_truth/defect # Cần thay thế
+  mask_suffix: _mask # Cần thay thế
+  mask_extension: .png # Cần thay thế 
   recursive: true
   image_size: null
   batch_size: 1
+  max_train: 10 # Số lượng ảnh train
+  max_test: 100 # Số lượng ảnh test
 model:
   name: patchcore
   backbone: wide_resnet50_2
   layers: [layer2, layer3]
   pretrained: true
-input_tiling:
+input_tiling: # Tham số liên quan đến chia ảnh đầu vào thành các khối nhỏ
   enabled: true
-  tile_size: [256, 256]
-  stride: [256, 256]
-  tile_resize: [256, 256]
+  tile_size: [1000, 912]   # Cỡ của khối được chia từ ảnh đầu vào. Ví dụ ảnh 5120x5120 có tile_size = [1024, 1024] sẽ được chia thành 5x5 = 25 khối nhỏ
+  stride: [1000, 912] # Độ overlap. ví dụ ảnh 5120x5120, tile_size = [1024, 1024] với stride = [768, 768] thì mức độ overlap là 25%. Vì 768/1024 = 75%
+  tile_resize: [250, 228] # Network input per tile; equal to tile_size skips resize.
+  mode: padding
+  remove_border_count: 0
 patchcore:
-  coreset_ratio: 0.1
-  num_neighbors: 9
+  coreset_ratio: 0.01
+  num_neighbors: 1
   tile_batch_size: 8
   embedding_storage: disk
   distance_bank_chunk_size: 4096
+evaluation:
+  aupro_fpr_limit: 0.3
+  aupro_thresholds: 200
+  pixel_auroc_bins: 4096  # Pixel_AUROC tính bằng cách xấp xỉ histogram để tránh bị tràn RAM
+  fps_warmup: 2
+  save_maps: false
+  save_checkpoint: false

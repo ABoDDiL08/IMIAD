@@ -10,21 +10,20 @@ data:
   category: phone_battery
   camera: C1
   resolution: raw
-  image_size: null  # Keep the source image and mask at their native size.
-  batch_size: 1
+  image_size: null # Đặt null để giữ nguyên size ảnh raw (5120x5120)
+  batch_size: 1 # Số ảnh tải lên mỗi lượt trước khi thực hiện chia ảnh thành các khối nhỏ
   num_workers: 0
   strict_files: true
-  max_train: 50
-  max_test: 100  # Set to 100 to sample test images proportionally by OK/defect class.
-model:
+  max_train: 50 # Số lượng ảnh train
+  max_test: 100  # Số lượng ảnh test
   name: patchcore
   backbone: wide_resnet50_2
   layers: [layer2, layer3]
   pretrained: true
-input_tiling:
+input_tiling: # Tham số liên quan đến chia ảnh đầu vào thành các khối nhỏ
   enabled: true
-  tile_size: [1000, 912]   # Raw-image pixels before the backbone.
-  stride: [1000, 912]
+  tile_size: [1000, 912]   # Cỡ của khối được chia từ ảnh đầu vào. Ví dụ ảnh 5120x5120 có tile_size = [1024, 1024] sẽ được chia thành 5x5 = 25 khối nhỏ
+  stride: [1000, 912] # Độ overlap. ví dụ ảnh 5120x5120, tile_size = [1024, 1024] với stride = [768, 768] thì mức độ overlap là 25%. Vì 768/1024 = 75%
   tile_resize: [250, 228] # Network input per tile; equal to tile_size skips resize.
   mode: padding
   remove_border_count: 0
@@ -33,13 +32,13 @@ tiled_ensemble:
 patchcore:
   coreset_ratio: 0.01
   num_neighbors: 1
-  tile_batch_size: 8       # Maximum tiles passed to the backbone per forward.
-  embedding_storage: disk  # Temporary training embeddings are deleted after coreset selection.
+  tile_batch_size: 8       # Số lượng tile ảnh truyền vào 1 lượt forward
+  embedding_storage: disk  # Chọn nơi lưu các vector: disk là lưu xuống ổ đĩa, thời gian I/O lâu hơn. Memory lưu trong RAM, tốc độ nhanh, size hạn chế hơn
   distance_bank_chunk_size: 4096
 evaluation:
   aupro_fpr_limit: 0.3
   aupro_thresholds: 200
-  pixel_auroc_bins: 4096  # Bounded-memory approximation for native-size test images.
+  pixel_auroc_bins: 4096  # Pixel_AUROC tính bằng cách xấp xỉ histogram để tránh bị tràn RAM
   fps_warmup: 2
   save_maps: false
   save_checkpoint: false
