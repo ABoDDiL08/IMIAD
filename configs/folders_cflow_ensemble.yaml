@@ -37,4 +37,9 @@ cflow:
   learning_rate: 0.0001
   epochs: 10
 evaluation:
+  aupro_fpr_limit: 0.3
+  aupro_thresholds: 200
   pixel_auroc_bins: 4096
+  fps_warmup: 2
+  save_maps: false
+  save_checkpoint: false
