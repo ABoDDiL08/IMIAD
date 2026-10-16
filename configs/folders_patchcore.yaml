@@ -38,12 +38,12 @@ evaluation:
   aupro_fpr_limit: 0.3
   aupro_thresholds: 200
   pixel_auroc_bins: 4096  # Pixel_AUROC tính bằng cách xấp xỉ histogram để tránh bị tràn RAM
-  visualization:
-    enabled: true
-    image_threshold: null   # Calibrate from train-normal image scores.
-    train_quantile: 0.99
-    correct_anomalies: 5
-    max_side: 1600
+  # visualization:
+  #   enabled: true
+  #   image_threshold: null   # Calibrate from train-normal image scores.
+  #   train_quantile: 0.99
+  #   correct_anomalies: 5
+  #   max_side: 1600
   fps_warmup: 2
   save_maps: false
   save_checkpoint: false
