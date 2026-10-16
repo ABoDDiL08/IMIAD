@@ -15,7 +15,7 @@ data:
   num_workers: 0
   strict_files: true
   max_train: 10 # Số lượng ảnh train
-  max_test: 50  # Số lượng ảnh test
+  max_test: 100  # Số lượng ảnh test
 model:
   name: patchcore
   backbone: wide_resnet50_2
