@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import csv
 import tempfile
 import unittest
 from pathlib import Path
@@ -135,10 +136,29 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(report["metric_details"]["P-AUROC"],
                              {"method": "histogram", "bins": 128})
             self.assertEqual(report["dataset"]["test_images"], 2)
-            for name in ("I-AUROC", "P-AUROC", "AUPRO", "train_time_seconds", "inference_fps"):
+            self.assertEqual(report["dataset"]["train_pool_images"], 2)
+            self.assertEqual(report["dataset"]["train_images"], 1)
+            self.assertEqual(report["dataset"]["validation_images"], 1)
+            with (result.parent / "validation_scores.csv").open(
+                    newline="", encoding="utf-8") as stream:
+                validation_rows = list(csv.DictReader(stream))
+            self.assertEqual(len(validation_rows), 1)
+            self.assertEqual(report["metric_details"]["image_classification"]["threshold_source"],
+                             "validation_normal_quantile_0.81")
+            self.assertAlmostEqual(
+                report["metric_details"]["image_classification"]["threshold"],
+                float(validation_rows[0]["score"]))
+            for name in ("I-AUROC", "P-AUROC", "AUPRO", "Recall", "F1",
+                         "FPR", "train_time_seconds", "inference_fps"):
                 self.assertIsNotNone(report["metrics"][name], name)
+            self.assertIn("Precision", report["metrics"])
             self.assertGreater(report["metrics"]["inference_fps"], 0)
             self.assertTrue((result.parent / "predictions.csv").exists())
+            with (result.parent / "predictions.csv").open(newline="", encoding="utf-8") as stream:
+                predictions = list(csv.DictReader(stream))
+            self.assertEqual(len(predictions), 2)
+            self.assertIn("predicted_label", predictions[0])
+            self.assertEqual(sum(report["image_confusion_matrix"].values()), 2)
             self.assertFalse(list(result.parent.glob("imiad_patchcore_*")))
             self.assertFalse(list(result.parent.glob("imiad_eval_*")))
             if visualize:

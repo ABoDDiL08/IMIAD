@@ -22,8 +22,9 @@ from torch.utils.data import DataLoader
 
 from .config import load_config
 from .data import ImageDataset, load_records
-from .metrics import evaluate
+from .metrics import evaluate, image_classification_metrics
 from .models import build_runner
+from .validation import split_normal_train_validation
 from .visualization import CaseVisualizer
 
 
@@ -81,6 +82,7 @@ def run(config_path: str | Path) -> Path:
             "bins": cfg["evaluation"]["pixel_auroc_bins"],
         }},
         "metrics": {"I-AUROC": None, "P-AUROC": None, "AUPRO": None,
+                    "Precision": None, "Recall": None, "F1": None, "FPR": None,
                     "train_time_seconds": None, "inference_fps": None},
     }
     report_path = run_dir / "metrics.json"
@@ -107,12 +109,28 @@ def run(config_path: str | Path) -> Path:
         device = _device(cfg["experiment"]["device"])
         report["device"] = str(device)
         progress("loading_data")
-        train_records, test_records = load_records(cfg["data"], seed=int(cfg["experiment"]["seed"]))
-        report["dataset"] = {"train_images": len(train_records),
+        load_data = dict(cfg["data"])
+        load_data["max_train"] = None
+        train_pool, test_records = load_records(load_data, seed=int(cfg["experiment"]["seed"]))
+        train_pool_size = len(train_pool)
+        validation_records = []
+        if cfg["evaluation"]["visualization"]["image_threshold"] is None:
+            train_records, validation_records = split_normal_train_validation(
+                train_pool, cfg["data"]["max_train"],
+                cfg["evaluation"]["validation"]["fraction"],
+                cfg["evaluation"]["validation"]["min_images"],
+                int(cfg["experiment"]["seed"]))
+        else:
+            max_train = cfg["data"]["max_train"]
+            train_records = train_pool[:max_train] if max_train is not None else train_pool
+        report["dataset"] = {"train_pool_images": train_pool_size,
+                             "train_images": len(train_records),
+                             "validation_images": len(validation_records),
                              "test_images": len(test_records),
                              "test_anomalies": sum(x.label for x in test_records),
                              "test_class_counts": dict(Counter(x.defect_type for x in test_records))}
         train_set = ImageDataset(train_records, cfg["data"]["image_size"])
+        validation_set = ImageDataset(validation_records, cfg["data"]["image_size"])
         test_set = ImageDataset(test_records, cfg["data"]["image_size"])
         train_loader = DataLoader(train_set, batch_size=cfg["data"]["batch_size"],
                                   shuffle=True, num_workers=cfg["data"]["num_workers"])
@@ -138,32 +156,46 @@ def run(config_path: str | Path) -> Path:
 
         visual_cfg = cfg["evaluation"]["visualization"]
         visualizer = None
+        threshold = visual_cfg["image_threshold"]
+        threshold_source = "configured"
+        if threshold is None:
+            normal_scores = []
+            calibration_loader = DataLoader(
+                validation_set, batch_size=1, shuffle=False,
+                num_workers=cfg["data"]["num_workers"])
+            progress("image_threshold_calibration", images_done=0,
+                     images_total=len(validation_records))
+            validation_rows = []
+            for calibration_index, batch in enumerate(calibration_loader, start=1):
+                image = batch["image"] if cpu_input_tiling else batch["image"].to(device)
+                scores, _ = model.predict(image)
+                score = float(scores[0].detach().cpu())
+                normal_scores.append(score)
+                validation_rows.append({"path": batch["path"][0], "score": score})
+                progress("image_threshold_calibration", images_done=calibration_index,
+                         images_total=len(validation_records))
+            with (run_dir / "validation_scores.csv").open("w", newline="", encoding="utf-8") as stream:
+                writer = csv.DictWriter(stream, fieldnames=["path", "score"])
+                writer.writeheader()
+                writer.writerows(validation_rows)
+            quantile = cfg["evaluation"]["validation"]["quantile"]
+            threshold = float(np.quantile(normal_scores, quantile))
+            threshold_source = f"validation_normal_quantile_{quantile}"
+        threshold = float(threshold)
+        report["metric_details"]["image_classification"] = {
+            "level": "image", "threshold": threshold, "threshold_source": threshold_source,
+            "positive_if": "score > threshold",
+            "undefined_rate": "null when denominator is zero",
+        }
         if visual_cfg["enabled"]:
-            threshold = visual_cfg["image_threshold"]
-            threshold_source = "configured"
-            if threshold is None:
-                normal_scores = []
-                calibration_loader = DataLoader(
-                    train_set, batch_size=1, shuffle=False,
-                    num_workers=cfg["data"]["num_workers"])
-                progress("visualization_threshold_calibration", images_done=0,
-                         images_total=len(train_records))
-                for calibration_index, batch in enumerate(calibration_loader, start=1):
-                    image = batch["image"] if cpu_input_tiling else batch["image"].to(device)
-                    scores, _ = model.predict(image)
-                    normal_scores.append(float(scores[0].detach().cpu()))
-                    progress("visualization_threshold_calibration", images_done=calibration_index,
-                             images_total=len(train_records))
-                threshold = float(np.quantile(normal_scores, visual_cfg["train_quantile"]))
-                threshold_source = f"train_normal_quantile_{visual_cfg['train_quantile']}"
             visualizer = CaseVisualizer(
-                run_dir, float(threshold), visual_cfg["correct_anomalies"],
+                run_dir, threshold, visual_cfg["correct_anomalies"],
                 visual_cfg["max_side"])
             report["visualizations"] = {"directory": str(visualizer.directory),
-                                        "image_threshold": float(threshold),
+                                        "image_threshold": threshold,
                                         "threshold_source": threshold_source}
-            progress("visualization_threshold_ready", image_threshold=float(threshold),
-                     source=threshold_source)
+        progress("image_threshold_ready", image_threshold=threshold,
+                 source=threshold_source)
 
         warmup = int(cfg["evaluation"]["fps_warmup"])
         if warmup:
@@ -202,7 +234,8 @@ def run(config_path: str | Path) -> Path:
                 raise ValueError(f"Non-finite prediction for {batch['path'][0]}")
             image_scores.append(score)
             image_labels.append(label)
-            rows.append({"path": batch["path"][0], "label": label, "score": score})
+            rows.append({"path": batch["path"][0], "label": label, "score": score,
+                         "predicted_label": int(score > threshold)})
             if visualizer is not None:
                 visualizer.consider(index, Path(batch["path"][0]), label, score,
                                     anomaly_map, mask)
@@ -216,6 +249,11 @@ def run(config_path: str | Path) -> Path:
         if visualizer is not None:
             report["visualizations"].update(visualizer.finish())
             progress("visualizations_complete", **report["visualizations"]["counts"])
+        classification, counts = image_classification_metrics(
+            image_labels, image_scores, threshold)
+        report["metrics"].update(classification)
+        report["image_confusion_matrix"] = counts
+        progress("test_metrics_image_classification", **counts)
         report["metrics"].update(evaluate(
             image_labels, image_scores, maps, masks,
             cfg["evaluation"]["aupro_fpr_limit"],
@@ -235,7 +273,8 @@ def run(config_path: str | Path) -> Path:
         )
         progress("writing_outputs")
         with (run_dir / "predictions.csv").open("w", newline="", encoding="utf-8") as stream:
-            writer = csv.DictWriter(stream, fieldnames=["path", "label", "score"])
+            writer = csv.DictWriter(stream, fieldnames=[
+                "path", "label", "score", "predicted_label"])
             writer.writeheader()
             writer.writerows(rows)
         report["status"] = "completed"

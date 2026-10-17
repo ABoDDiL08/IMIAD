@@ -21,7 +21,8 @@ Các tham số thường cần chỉnh:
 
 | Tham số | Vai trò |
 | --- | --- |
-| `data.max_train`, `data.max_test` | Giới hạn số ảnh train/test. Test được lấy mẫu theo tỷ lệ các loại lỗi trong tập gốc. |
+| `data.max_train`, `data.max_test` | Giới hạn số ảnh train và số ảnh test. Test được lấy mẫu theo tỷ lệ các loại lỗi trong tập gốc. |
+| `evaluation.validation.fraction`, `min_images`, `quantile` | Số ảnh validation mục tiêu bằng 20% ảnh train, tối thiểu 10 nếu còn ảnh chưa dùng; ngưỡng là phân vị 81% điểm validation. |
 | `data.image_size: null` | Giữ kích thước ảnh gốc để chia tile trước khi resize từng tile. |
 | `data.batch_size` | Số ảnh train trong một lượt tải dữ liệu; khi test, code xử lý một ảnh mỗi lượt. |
 | `input_tiling.tile_size`, `stride` | Kích thước tile và bước trượt trên ảnh gốc. `stride` nhỏ hơn `tile_size` tạo vùng chồng lấp. |
@@ -32,12 +33,13 @@ Các tham số thường cần chỉnh:
 
 Kết quả nằm trong `runs/<run_id>/` theo `experiment.output_dir`:
 
-- `metrics.json`: I-AUROC, P-AUROC, AUPRO, thời gian train, FPS inference, trạng thái và tiến độ.
-- `predictions.csv`: đường dẫn ảnh test, nhãn thật và điểm bất thường ở cấp ảnh.
+- `metrics.json`: I-AUROC, P-AUROC, AUPRO, Precision, Recall, F1, FPR ở cấp ảnh, thời gian train, FPS inference, ngưỡng phân loại, TP/FP/TN/FN, trạng thái và tiến độ.
+- `predictions.csv`: đường dẫn ảnh test, nhãn thật (`label`), điểm bất thường (`score`) và nhãn dự đoán (`predicted_label`).
+- `validation_scores.csv`: ảnh bình thường được giữ lại khỏi train và điểm dùng để tính ngưỡng tự động. Không tạo file này khi đặt ngưỡng thủ công.
 - `progress.log`, `config_resolved.yaml`: tiến độ và cấu hình thực tế của lần chạy.
 - `visualizations/`: khi `evaluation.visualization.enabled: true`, lưu toàn bộ ảnh dự đoán sai (FP/FN) và tối đa `correct_anomalies` ảnh bất thường dự đoán đúng (TP, mặc định 5). Mỗi trường hợp có ảnh đối chiếu gồm ảnh gốc, heatmap, overlay, mask thật; heatmap và overlay cũng được lưu riêng. `manifest.csv` liệt kê các file này.
 
-Nhãn dự đoán để chọn ảnh xem lại được xác định bằng ngưỡng điểm cấp ảnh `evaluation.visualization.image_threshold`. Nếu để `null`, code suy ra ngưỡng từ phân vị `train_quantile` của điểm trên ảnh train bình thường (mặc định 0,99); bước này cần thêm một lượt inference trên tập train. Đây là ngưỡng phục vụ phân tích lỗi, không phải ngưỡng đã được đánh giá trên tập validation độc lập. Heatmap được chuẩn hóa màu theo phân vị 1% và 99% **riêng cho từng ảnh**; vì vậy màu giữa hai ảnh không biểu thị cùng một thang điểm tuyệt đối. `max_side` giới hạn kích thước ảnh xuất ra.
+Nhãn dự đoán và Precision, Recall, F1, FPR dùng cùng ngưỡng điểm cấp ảnh `evaluation.visualization.image_threshold`, kể cả khi tắt xuất ảnh. Ảnh có `score > image_threshold` được dự đoán là bất thường. Nếu để `null`, code lấy ảnh bình thường chưa dùng để train làm validation bằng cách lấy mẫu có seed, rồi lấy phân vị 81% của điểm validation làm ngưỡng. Với `max_train: 50` và tập gốc còn ít nhất 10 ảnh khác, code train trên 50 ảnh và chọn 10 ảnh validation; với `max_train: 10`, code cũng cố lấy 10 ảnh validation nếu còn đủ ảnh. Nếu không còn ảnh dư, code giữ lại tối đa 20% trong tập được chọn cho validation và giảm số ảnh thực sự dùng để train. Bước hiệu chỉnh cần thêm một lượt inference trên validation; ngưỡng và số ảnh mỗi tập được ghi trong `metrics.json`. Đây là ngưỡng hiệu chỉnh từ ảnh validation bình thường, chưa tối ưu F1 và không bảo đảm FPR test bằng 19%. Nếu đặt `image_threshold` bằng số cụ thể, code không tách validation. Metric có mẫu số bằng 0 được ghi là `null`. Heatmap được chuẩn hóa màu theo phân vị 1% và 99% **riêng cho từng ảnh**; vì vậy màu giữa hai ảnh không biểu thị cùng một thang điểm tuyệt đối. `max_side` giới hạn kích thước ảnh xuất ra.
 
 Để giảm RAM khi tính metric pixel, anomaly map và mask của ảnh test được lưu tạm dưới dạng `.npy` rồi đọc từng ảnh; các file tạm được xóa sau khi chạy. `evaluation.save_maps: true` giữ lại anomaly map gốc trong `maps/`. Với ảnh lớn, nên đặt `evaluation.pixel_auroc_bins` (ví dụ `4096`) để tính P-AUROC xấp xỉ bằng histogram; để `null` sẽ dùng cách tính chính xác và có thể cần rất nhiều RAM.
 

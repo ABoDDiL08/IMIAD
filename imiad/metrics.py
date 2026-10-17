@@ -22,6 +22,28 @@ def _auroc(labels: np.ndarray, scores: np.ndarray) -> float | None:
     return float(roc_auc_score(labels, scores))
 
 
+def image_classification_metrics(labels: list[int], scores: list[float],
+                                 threshold: float) -> tuple[dict, dict]:
+    """Image-level metrics at one threshold; undefined rates are null in JSON."""
+    actual = np.asarray(labels, dtype=np.uint8)
+    predicted = np.asarray(scores) > threshold
+    if actual.shape != predicted.shape or not np.isin(actual, [0, 1]).all():
+        raise ValueError("Image labels and scores must be paired binary observations")
+    tp = int(np.count_nonzero((actual == 1) & predicted))
+    fp = int(np.count_nonzero((actual == 0) & predicted))
+    tn = int(np.count_nonzero((actual == 0) & ~predicted))
+    fn = int(np.count_nonzero((actual == 1) & ~predicted))
+
+    def rate(numerator: int, denominator: int) -> float | None:
+        return numerator / denominator if denominator else None
+
+    return ({"Precision": rate(tp, tp + fp),
+             "Recall": rate(tp, tp + fn),
+             "F1": rate(2 * tp, 2 * tp + fp + fn),
+             "FPR": rate(fp, fp + tn)},
+            {"TP": tp, "FP": fp, "TN": tn, "FN": fn})
+
+
 def pixel_auroc_histogram(maps: list[np.ndarray], masks: list[np.ndarray],
                           bins: int, progress=None) -> float | None:
     """Bound RAM by counting positive/negative pixel scores in fixed bins."""

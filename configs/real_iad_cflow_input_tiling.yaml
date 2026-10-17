@@ -39,13 +39,16 @@ cflow:
   learning_rate: 0.0001
   epochs: 10
 evaluation:
+  validation:
+    fraction: 0.2
+    min_images: 10
+    quantile: 0.81
   aupro_fpr_limit: 0.3
   aupro_thresholds: 200
   pixel_auroc_bins: 4096
   visualization:
     enabled: true
     image_threshold: null
-    train_quantile: 0.99
     correct_anomalies: 5
     max_side: 1600
   fps_warmup: 2

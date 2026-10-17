@@ -35,13 +35,16 @@ patchcore:
   embedding_storage: disk
   distance_bank_chunk_size: 4096
 evaluation:
+  validation:
+    fraction: 0.2
+    min_images: 10
+    quantile: 0.81
   aupro_fpr_limit: 0.3
   aupro_thresholds: 200
   pixel_auroc_bins: 4096  # Pixel_AUROC tính bằng cách xấp xỉ histogram để tránh bị tràn RAM
   # visualization:
   #   enabled: true
-  #   image_threshold: null   # Calibrate from train-normal image scores.
-  #   train_quantile: 0.99
+  #   image_threshold: null   # Calibrate from held-out normal validation images.
   #   correct_anomalies: 5
   #   max_side: 1600
   fps_warmup: 2

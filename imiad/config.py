@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from math import isfinite
 from pathlib import Path
 
 import yaml
@@ -28,8 +29,10 @@ DEFAULTS = {
               "learning_rate": 0.0001, "epochs": 10, "tile_batch_size": 8},
     "evaluation": {"aupro_fpr_limit": 0.3, "aupro_thresholds": 200,
                    "pixel_auroc_bins": None,
+                   "validation": {"fraction": 0.2, "min_images": 10,
+                                  "quantile": 0.81},
                    "visualization": {"enabled": False, "image_threshold": None,
-                                     "train_quantile": 0.99, "correct_anomalies": 5,
+                                     "correct_anomalies": 5,
                                      "max_side": 1600},
                    "fps_warmup": 2, "save_maps": False, "save_checkpoint": False},
 }
@@ -126,13 +129,20 @@ def load_config(path: str | Path) -> dict:
     bins = cfg["evaluation"]["pixel_auroc_bins"]
     if bins is not None and (type(bins) is not int or bins < 2):
         raise ValueError("evaluation.pixel_auroc_bins must be null or an integer >= 2")
+    validation = cfg["evaluation"]["validation"]
+    for field in ("fraction", "quantile"):
+        value = validation[field]
+        if type(value) not in (int, float) or not isfinite(value) or not 0 < value <= 1:
+            raise ValueError(f"evaluation.validation.{field} must be in (0, 1]")
+    if validation["fraction"] == 1:
+        raise ValueError("evaluation.validation.fraction must be below 1 to leave training images")
+    if type(validation["min_images"]) is not int or validation["min_images"] < 1:
+        raise ValueError("evaluation.validation.min_images must be a positive integer")
     visual = cfg["evaluation"]["visualization"]
     threshold = visual["image_threshold"]
     if threshold is not None and (not isinstance(threshold, (int, float))
                                   or not float("-inf") < threshold < float("inf")):
         raise ValueError("evaluation.visualization.image_threshold must be a finite number or null")
-    if not 0 < visual["train_quantile"] <= 1:
-        raise ValueError("evaluation.visualization.train_quantile must be in (0, 1]")
     if type(visual["correct_anomalies"]) is not int or visual["correct_anomalies"] < 0:
         raise ValueError("evaluation.visualization.correct_anomalies must be nonnegative")
     if type(visual["max_side"]) is not int or visual["max_side"] < 64:

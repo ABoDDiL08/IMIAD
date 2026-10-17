@@ -7,7 +7,34 @@ from pathlib import Path
 import numpy as np
 from sklearn.metrics import roc_auc_score
 
-from imiad.metrics import evaluate, pixel_auroc_histogram
+from imiad.metrics import evaluate, image_classification_metrics, pixel_auroc_histogram
+
+
+class ImageClassificationMetricsTest(unittest.TestCase):
+    def test_confusion_matrix_and_rates(self) -> None:
+        metrics, counts = image_classification_metrics(
+            [1, 1, 0, 0], [0.9, 0.2, 0.8, 0.1], 0.5)
+        self.assertEqual(counts, {"TP": 1, "FP": 1, "TN": 1, "FN": 1})
+        self.assertEqual(metrics, {"Precision": 0.5, "Recall": 0.5,
+                                   "F1": 0.5, "FPR": 0.5})
+
+    def test_all_predicted_positive(self) -> None:
+        metrics, counts = image_classification_metrics(
+            [1] * 93 + [0] * 107, [1.0] * 200, 0.5)
+        self.assertEqual(counts, {"TP": 93, "FP": 107, "TN": 0, "FN": 0})
+        self.assertEqual(metrics["Precision"], 93 / 200)
+        self.assertEqual(metrics["Recall"], 1.0)
+        self.assertEqual(metrics["FPR"], 1.0)
+
+    def test_undefined_denominators(self) -> None:
+        metrics, counts = image_classification_metrics([1, 1], [0.1, 0.2], 0.5)
+        self.assertEqual(counts, {"TP": 0, "FP": 0, "TN": 0, "FN": 2})
+        self.assertEqual(metrics, {"Precision": None, "Recall": 0.0,
+                                   "F1": 0.0, "FPR": None})
+
+    def test_score_equal_to_threshold_is_negative(self) -> None:
+        metrics, counts = image_classification_metrics([0, 1], [0.5, 0.5], 0.5)
+        self.assertEqual(counts, {"TP": 0, "FP": 0, "TN": 1, "FN": 1})
 
 
 class HistogramPixelAurocTest(unittest.TestCase):
