@@ -25,7 +25,7 @@ input_tiling: # Tham số liên quan đến chia ảnh đầu vào thành các k
   enabled: true
   tile_size: [1000, 912]   # Cỡ của khối được chia từ ảnh đầu vào. Ví dụ ảnh 5120x5120 có tile_size = [1024, 1024] sẽ được chia thành 5x5 = 25 khối nhỏ
   stride: [1000, 912] # Độ overlap. ví dụ ảnh 5120x5120, tile_size = [1024, 1024] với stride = [768, 768] thì mức độ overlap là 25%. Vì 768/1024 = 75%
-  tile_resize: [250, 228] # Network input per tile; equal to tile_size skips resize.
+  tile_resize: [500, 456] # Network input per tile; equal to tile_size skips resize.
   mode: padding
   remove_border_count: 0
 tiled_ensemble:
