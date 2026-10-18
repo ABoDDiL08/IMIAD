@@ -1,8 +1,24 @@
 """Checks for disjoint, deterministic normal validation selection."""
 
 import unittest
+from math import sqrt
 
-from imiad.validation import split_normal_train_validation
+from imiad.validation import mean_std_threshold, split_normal_train_validation
+
+
+class MeanStdThresholdTest(unittest.TestCase):
+    def test_mean_plus_population_std(self) -> None:
+        threshold, mean, std = mean_std_threshold([1.0, 2.0, 3.0], 1.0)
+        self.assertEqual(mean, 2.0)
+        self.assertAlmostEqual(std, sqrt(2 / 3))
+        self.assertAlmostEqual(threshold, 2 + sqrt(2 / 3))
+
+    def test_one_validation_score_has_zero_std(self) -> None:
+        self.assertEqual(mean_std_threshold([7.0], 1.0), (7.0, 7.0, 0.0))
+
+    def test_rejects_nonfinite_validation_score(self) -> None:
+        with self.assertRaisesRegex(ValueError, "finite"):
+            mean_std_threshold([1.0, float("nan")], 1.0)
 
 
 class ValidationSplitTest(unittest.TestCase):

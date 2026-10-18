@@ -3,11 +3,24 @@
 from __future__ import annotations
 
 import random
-from math import ceil
-from typing import TypeVar
+from math import ceil, isfinite
+from statistics import fmean, pstdev
+from typing import Sequence, TypeVar
 
 
 T = TypeVar("T")
+
+
+def mean_std_threshold(scores: Sequence[float], std_multiplier: float) -> tuple[float, float, float]:
+    """Return threshold, mean and population standard deviation (ddof=0)."""
+    if not scores or not all(isfinite(score) for score in scores):
+        raise ValueError("Validation scores must be a nonempty finite sequence")
+    mean = fmean(scores)
+    std = pstdev(scores, mu=mean)
+    threshold = mean + std_multiplier * std
+    if not isfinite(threshold):
+        raise ValueError("Validation threshold is not finite")
+    return threshold, mean, std
 
 
 def split_normal_train_validation(records: list[T], max_train: int | None,

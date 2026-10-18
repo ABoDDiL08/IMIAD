@@ -24,7 +24,7 @@ from .config import load_config
 from .data import ImageDataset, load_records
 from .metrics import evaluate, image_classification_metrics
 from .models import build_runner
-from .validation import split_normal_train_validation
+from .validation import mean_std_threshold, split_normal_train_validation
 from .visualization import CaseVisualizer
 
 
@@ -158,6 +158,7 @@ def run(config_path: str | Path) -> Path:
         visualizer = None
         threshold = visual_cfg["image_threshold"]
         threshold_source = "configured"
+        calibration_details = {}
         if threshold is None:
             normal_scores = []
             calibration_loader = DataLoader(
@@ -178,14 +179,23 @@ def run(config_path: str | Path) -> Path:
                 writer = csv.DictWriter(stream, fieldnames=["path", "score"])
                 writer.writeheader()
                 writer.writerows(validation_rows)
-            quantile = cfg["evaluation"]["validation"]["quantile"]
-            threshold = float(np.quantile(normal_scores, quantile))
-            threshold_source = f"validation_normal_quantile_{quantile}"
+            multiplier = cfg["evaluation"]["validation"]["std_multiplier"]
+            threshold, validation_mean, validation_std = mean_std_threshold(
+                normal_scores, multiplier)
+            threshold_source = "validation_normal_mean_plus_std"
+            calibration_details = {
+                "validation_mean": validation_mean,
+                "validation_std": validation_std,
+                "std_ddof": 0,
+                "std_multiplier": multiplier,
+                "validation_images": len(normal_scores),
+            }
         threshold = float(threshold)
         report["metric_details"]["image_classification"] = {
             "level": "image", "threshold": threshold, "threshold_source": threshold_source,
             "positive_if": "score > threshold",
             "undefined_rate": "null when denominator is zero",
+            **calibration_details,
         }
         if visual_cfg["enabled"]:
             visualizer = CaseVisualizer(
@@ -195,7 +205,7 @@ def run(config_path: str | Path) -> Path:
                                         "image_threshold": threshold,
                                         "threshold_source": threshold_source}
         progress("image_threshold_ready", image_threshold=threshold,
-                 source=threshold_source)
+                 source=threshold_source, **calibration_details)
 
         warmup = int(cfg["evaluation"]["fps_warmup"])
         if warmup:

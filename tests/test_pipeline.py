@@ -144,10 +144,12 @@ class PipelineTest(unittest.TestCase):
                 validation_rows = list(csv.DictReader(stream))
             self.assertEqual(len(validation_rows), 1)
             self.assertEqual(report["metric_details"]["image_classification"]["threshold_source"],
-                             "validation_normal_quantile_0.81")
+                             "validation_normal_mean_plus_std")
             self.assertAlmostEqual(
                 report["metric_details"]["image_classification"]["threshold"],
                 float(validation_rows[0]["score"]))
+            self.assertEqual(report["metric_details"]["image_classification"]["std_ddof"], 0)
+            self.assertEqual(report["metric_details"]["image_classification"]["std_multiplier"], 1.0)
             for name in ("I-AUROC", "P-AUROC", "AUPRO", "Recall", "F1",
                          "FPR", "train_time_seconds", "inference_fps"):
                 self.assertIsNotNone(report["metrics"][name], name)

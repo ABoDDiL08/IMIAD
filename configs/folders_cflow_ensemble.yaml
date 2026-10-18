@@ -40,7 +40,7 @@ evaluation:
   validation:
     fraction: 0.2
     min_images: 10
-    quantile: 0.81
+    std_multiplier: 1.0
   aupro_fpr_limit: 0.3
   aupro_thresholds: 200
   pixel_auroc_bins: 4096

@@ -30,7 +30,7 @@ DEFAULTS = {
     "evaluation": {"aupro_fpr_limit": 0.3, "aupro_thresholds": 200,
                    "pixel_auroc_bins": None,
                    "validation": {"fraction": 0.2, "min_images": 10,
-                                  "quantile": 0.81},
+                                  "std_multiplier": 1.0},
                    "visualization": {"enabled": False, "image_threshold": None,
                                      "correct_anomalies": 5,
                                      "max_side": 1600},
@@ -130,14 +130,14 @@ def load_config(path: str | Path) -> dict:
     if bins is not None and (type(bins) is not int or bins < 2):
         raise ValueError("evaluation.pixel_auroc_bins must be null or an integer >= 2")
     validation = cfg["evaluation"]["validation"]
-    for field in ("fraction", "quantile"):
-        value = validation[field]
-        if type(value) not in (int, float) or not isfinite(value) or not 0 < value <= 1:
-            raise ValueError(f"evaluation.validation.{field} must be in (0, 1]")
-    if validation["fraction"] == 1:
-        raise ValueError("evaluation.validation.fraction must be below 1 to leave training images")
+    fraction = validation["fraction"]
+    if type(fraction) not in (int, float) or not isfinite(fraction) or not 0 < fraction < 1:
+        raise ValueError("evaluation.validation.fraction must be in (0, 1)")
     if type(validation["min_images"]) is not int or validation["min_images"] < 1:
         raise ValueError("evaluation.validation.min_images must be a positive integer")
+    multiplier = validation["std_multiplier"]
+    if type(multiplier) not in (int, float) or not isfinite(multiplier) or multiplier < 0:
+        raise ValueError("evaluation.validation.std_multiplier must be a nonnegative finite number")
     visual = cfg["evaluation"]["visualization"]
     threshold = visual["image_threshold"]
     if threshold is not None and (not isinstance(threshold, (int, float))
