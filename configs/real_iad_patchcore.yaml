@@ -14,8 +14,8 @@ data:
   batch_size: 1 # Số ảnh tải lên mỗi lượt trước khi thực hiện chia ảnh thành các khối nhỏ
   num_workers: 0
   strict_files: true
-  max_train: 15 # Số lượng ảnh train
-  max_test: 100  # Số lượng ảnh test
+  max_train: null # Số lượng ảnh train
+  max_test: null  # Số lượng ảnh test
 model:
   name: patchcore
   backbone: wide_resnet50_2
